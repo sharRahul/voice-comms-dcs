@@ -1,0 +1,64 @@
+{
+  "dcs_host": "127.0.0.1",
+  "dcs_port": 10308,
+  "matching": {
+    "min_confidence": 0.78
+  },
+  "stt": {
+    "engine": "vosk",
+    "model_path": "models/vosk-model-small-en-us-0.15",
+    "sample_rate": 16000,
+    "device": null
+  },
+  "push_to_talk": {
+    "enabled": false,
+    "hotkey": "right_ctrl"
+  },
+  "commands": [
+    {
+      "id": "request_tanker",
+      "description": "Ask mission logic to run the tanker request action.",
+      "phrases": [
+        "request tanker",
+        "tanker request",
+        "texaco request rejoin",
+        "send tanker"
+      ],
+      "action": {
+        "type": "flag",
+        "flag": 5101,
+        "value": 1
+      }
+    },
+    {
+      "id": "request_bogey_dope",
+      "description": "Ask AWACS or mission logic for an air picture update.",
+      "phrases": [
+        "bogey dope",
+        "request bogey dope",
+        "picture",
+        "request picture"
+      ],
+      "action": {
+        "type": "flag",
+        "flag": 5102,
+        "value": 1
+      }
+    },
+    {
+      "id": "abort_mission",
+      "description": "Trigger an abort or return-to-base branch in mission logic.",
+      "phrases": [
+        "abort mission",
+        "mission abort",
+        "knock it off",
+        "return to base"
+      ],
+      "action": {
+        "type": "flag",
+        "flag": 5199,
+        "value": 1
+      }
+    }
+  ]
+}
