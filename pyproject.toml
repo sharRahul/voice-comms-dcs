@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-comms-dcs"
+version = "0.1.0"
+description = "Voice-to-DCS bridge for custom F10-style mission commands."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Rahul Sharma" }
+]
+dependencies = [
+  "sounddevice>=0.4.6",
+  "vosk>=0.3.45"
+]
+
+[project.scripts]
+voice-comms-dcs = "voice_comms_dcs.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
