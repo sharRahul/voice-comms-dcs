@@ -11,6 +11,7 @@ import requests
 from .app import DispatchResult, VoiceCommsService
 from .config import AppConfig, load_config
 from .context_manager import AiMode, ContextManager, DynamicContext
+from .dashboard_settings import personality_instruction
 from .language_models import SUPPORTED_LANGUAGES
 from .matcher import find_best_match
 
@@ -89,6 +90,7 @@ class NimbusIntelligence:
         context_manager: ContextManager | None = None,
         llm: LocalLlmClient | None = None,
         enable_llm: bool = True,
+        personality: str = "professional",
     ) -> None:
         self.config = config
         self.context_manager = context_manager or ContextManager()
@@ -100,10 +102,14 @@ class NimbusIntelligence:
         self.enable_llm = enable_llm
         self.command_service = VoiceCommsService(config)
         self.language = config.language.selected
+        self.personality = personality
 
     def set_language(self, language: str) -> None:
         if language in SUPPORTED_LANGUAGES:
             self.language = language
+
+    def set_personality(self, personality: str) -> None:
+        self.personality = personality
 
     def close(self) -> None:
         self.command_service.close()
@@ -201,6 +207,7 @@ class NimbusIntelligence:
 
         messages = self.context_manager.build_llm_messages(text)
         messages[0]["content"] += "\n\n" + language_instruction(self.language)
+        messages[0]["content"] += "\n" + personality_instruction(self.personality)
         try:
             response = self.llm.chat_text(messages, combat_mode=context.mode is AiMode.COMBAT)
         except Exception:
@@ -328,10 +335,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", default="config/commands.json")
     parser.add_argument("--text", required=True)
     parser.add_argument("--no-llm", action="store_true")
+    parser.add_argument("--personality", default="professional", choices=["professional", "conversational", "instructor", "rio"])
     args = parser.parse_args(argv)
 
     config = load_config(args.config)
-    nimbus = NimbusIntelligence(config=config, enable_llm=not args.no_llm)
+    nimbus = NimbusIntelligence(config=config, enable_llm=not args.no_llm, personality=args.personality)
     decision, dispatch = nimbus.handle_pilot_text(args.text)
     print(json.dumps({"decision": decision.__dict__, "dispatch": dispatch.__dict__ if dispatch else None}, indent=2, default=str, ensure_ascii=False))
     nimbus.close()
