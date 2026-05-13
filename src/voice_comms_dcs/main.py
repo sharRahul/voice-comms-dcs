@@ -18,12 +18,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", default="config/commands.json")
     parser.add_argument("--test-phrase")
-    parser.add_argument("--install-lua", action="store_true", help="Install VoiceBridge.lua and dcs_telemetry.lua into discovered DCS Saved Games folders.")
-    parser.add_argument("--uninstall-lua", action="store_true", help="Remove Voice-Comms-DCS Lua hooks and scripts from DCS Saved Games folders.")
+    parser.add_argument("--install-lua", action="store_true")
+    parser.add_argument("--uninstall-lua", action="store_true")
     parser.add_argument("--dcs-source-dir", default="dcs_scripts")
     parser.add_argument("--saved-games")
-    parser.add_argument("--setup-dependencies", action="store_true", help="Download selected Ollama, Whisper and Piper dependencies.")
-    parser.add_argument("--remove-dependencies", action="store_true", help="Remove downloaded Whisper/Piper model files managed by this project.")
+    parser.add_argument("--setup-dependencies", action="store_true")
+    parser.add_argument("--setup-dependencies-ui", action="store_true")
+    parser.add_argument("--remove-dependencies", action="store_true")
     parser.add_argument("--languages", nargs="+", default=None, choices=["en", "zh", "ko", "fr", "ru", "es"])
     parser.add_argument("--ollama-model", default="qwen2.5:0.5b")
     parser.add_argument("--whisper-quality", choices=["tiny", "base"], default="base")
@@ -53,6 +54,17 @@ def main(argv: list[str] | None = None) -> int:
             if result.backup_path:
                 print(f"  backup: {result.backup_path}")
         return 0
+
+    if args.setup_dependencies_ui:
+        from .dependency_setup_ui import DependencySetupUi
+
+        app = DependencySetupUi(
+            languages=validate_languages(args.languages or ["en"]),
+            ollama_model=args.ollama_model,
+            whisper_quality=args.whisper_quality,
+        )
+        app.mainloop()
+        return 1 if app.failed else 0
 
     if args.setup_dependencies or args.remove_dependencies:
         languages = validate_languages(args.languages or ["en"])
