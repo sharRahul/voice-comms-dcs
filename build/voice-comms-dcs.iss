@@ -2,7 +2,7 @@
 ; Build PyInstaller output first using build\build_exe.ps1.
 
 #define MyAppName "Voice-Comms-DCS"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher "Rahul Sharma"
 #define MyAppExeName "Voice-Comms-DCS.exe"
 
@@ -31,11 +31,15 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 [Files]
 Source: "..\dist\Voice-Comms-DCS\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\config\commands.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
+Source: "..\config\aircraft_profiles\*"; DestDir: "{app}\config\aircraft_profiles"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dcs_scripts\VoiceBridge.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
+Source: "..\dcs_scripts\dcs_telemetry.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\Export.lua.append.example"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\mission_trigger_example.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\architecture.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\phase2_conversational_cockpit.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\installer_roadmap.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\security_and_limitations.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
@@ -51,6 +55,6 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    Log('Voice-Comms-DCS installed. DCS Saved Games script installation remains manual in v0.1.');
+    Log('Voice-Comms-DCS installed. DCS Saved Games script installation remains manual in v0.2.');
   end;
 end;
