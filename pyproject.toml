@@ -39,6 +39,10 @@ voice-comms-dcs-whisper = "voice_comms_dcs.stt_whisper_engine:main"
 voice-comms-dcs-install-lua = "voice_comms_dcs.install_lua_bridge:main"
 voice-comms-dcs-setup-dependencies = "voice_comms_dcs.setup_dependencies:main"
 voice-comms-dcs-setup-dependencies-ui = "voice_comms_dcs.dependency_setup_ui:main"
+voice-comms-dcs-srs = "voice_comms_dcs.srs_audio:main"
+voice-comms-dcs-rwr = "voice_comms_dcs.rwr_adapters:main"
+voice-comms-dcs-benchmark = "voice_comms_dcs.runtime_benchmark:main"
+voice-comms-dcs-manifest = "voice_comms_dcs.release_manifest:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
