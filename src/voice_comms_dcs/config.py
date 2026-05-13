@@ -28,10 +28,31 @@ class VoiceCommand:
 
 @dataclass(frozen=True)
 class SttConfig:
-    engine: str = "vosk"
-    model_path: str = "models/vosk-model-small-en-us-0.15"
+    engine: str = "whisper_cpp"
+    model_path: str = "models/whisper/ggml-base.en.bin"
     sample_rate: int = 16000
     device: str | int | None = None
+
+
+@dataclass(frozen=True)
+class LlmConfig:
+    provider: str = "ollama"
+    base_url: str = "http://127.0.0.1:11434"
+    model: str = "qwen2.5:0.5b"
+    recommended_model: str = "qwen2.5:1.5b"
+    high_quality_model: str = "llama3.2:3b"
+    timeout_seconds: float = 3.0
+
+
+@dataclass(frozen=True)
+class TtsConfig:
+    engine: str = "piper"
+    piper_exe: str = "piper"
+    piper_model: str = "models/piper/en_US-lessac-low.onnx"
+    optional_male_model: str = "models/piper/en_US-ryan-low.onnx"
+    bandpass_low_hz: float = 300.0
+    bandpass_high_hz: float = 3000.0
+    static_level: float = 0.012
 
 
 @dataclass(frozen=True)
@@ -40,6 +61,8 @@ class AppConfig:
     dcs_port: int
     min_confidence: float
     stt: SttConfig
+    llm: LlmConfig
+    tts: TtsConfig
     commands: tuple[VoiceCommand, ...]
 
 
@@ -101,6 +124,9 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError("At least one command must be configured.")
 
     stt_data = data.get("stt", {})
+    llm_data = data.get("llm", {})
+    tts_data = data.get("tts", {})
+    radio_filter = tts_data.get("radio_filter", {}) if isinstance(tts_data.get("radio_filter", {}), dict) else {}
     matching_data = data.get("matching", {})
 
     return AppConfig(
@@ -108,10 +134,27 @@ def load_config(path: str | Path) -> AppConfig:
         dcs_port=int(data.get("dcs_port", 10308)),
         min_confidence=float(matching_data.get("min_confidence", 0.78)),
         stt=SttConfig(
-            engine=str(stt_data.get("engine", "vosk")).lower(),
-            model_path=str(stt_data.get("model_path", "models/vosk-model-small-en-us-0.15")),
+            engine=str(stt_data.get("engine", "whisper_cpp")).lower(),
+            model_path=str(stt_data.get("model_path", "models/whisper/ggml-base.en.bin")),
             sample_rate=int(stt_data.get("sample_rate", 16000)),
             device=stt_data.get("device"),
+        ),
+        llm=LlmConfig(
+            provider=str(llm_data.get("provider", "ollama")).lower(),
+            base_url=str(llm_data.get("base_url", "http://127.0.0.1:11434")),
+            model=str(llm_data.get("model", "qwen2.5:0.5b")),
+            recommended_model=str(llm_data.get("recommended_model", "qwen2.5:1.5b")),
+            high_quality_model=str(llm_data.get("high_quality_model", "llama3.2:3b")),
+            timeout_seconds=float(llm_data.get("timeout_seconds", 3.0)),
+        ),
+        tts=TtsConfig(
+            engine=str(tts_data.get("engine", "piper")).lower(),
+            piper_exe=str(tts_data.get("piper_exe", "piper")),
+            piper_model=str(tts_data.get("piper_model", "models/piper/en_US-lessac-low.onnx")),
+            optional_male_model=str(tts_data.get("optional_male_model", "models/piper/en_US-ryan-low.onnx")),
+            bandpass_low_hz=float(radio_filter.get("bandpass_low_hz", 300.0)),
+            bandpass_high_hz=float(radio_filter.get("bandpass_high_hz", 3000.0)),
+            static_level=float(radio_filter.get("static_level", 0.012)),
         ),
         commands=tuple(commands),
     )
