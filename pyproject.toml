@@ -43,6 +43,7 @@ voice-comms-dcs-srs = "voice_comms_dcs.srs_audio:main"
 voice-comms-dcs-rwr = "voice_comms_dcs.rwr_adapters:main"
 voice-comms-dcs-benchmark = "voice_comms_dcs.runtime_benchmark:main"
 voice-comms-dcs-manifest = "voice_comms_dcs.release_manifest:main"
+voice-comms-dcs-model-manifest = "voice_comms_dcs.model_manifest:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
