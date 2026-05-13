@@ -7,11 +7,15 @@ project_root = Path.cwd()
 
 added_files = [
     (str(project_root / "config" / "commands.example.json"), "config"),
+    (str(project_root / "config" / "aircraft_profiles"), "config/aircraft_profiles"),
     (str(project_root / "dcs_scripts" / "VoiceBridge.lua"), "dcs_scripts"),
+    (str(project_root / "dcs_scripts" / "dcs_telemetry.lua"), "dcs_scripts"),
     (str(project_root / "dcs_scripts" / "Export.lua.append.example"), "dcs_scripts"),
     (str(project_root / "dcs_scripts" / "mission_trigger_example.lua"), "dcs_scripts"),
     (str(project_root / "README.md"), "."),
     (str(project_root / "docs" / "architecture.md"), "docs"),
+    (str(project_root / "docs" / "phase2_conversational_cockpit.md"), "docs"),
+    (str(project_root / "docs" / "installer_roadmap.md"), "docs"),
     (str(project_root / "docs" / "security_and_limitations.md"), "docs"),
 ]
 
@@ -20,7 +24,17 @@ a = Analysis(
     pathex=[str(project_root / "src")],
     binaries=[],
     datas=added_files,
-    hiddenimports=["vosk", "sounddevice"],
+    hiddenimports=[
+        "vosk",
+        "sounddevice",
+        "aiortc",
+        "aiohttp",
+        "websockets",
+        "av",
+        "numpy",
+        "scipy.signal",
+        "requests",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
