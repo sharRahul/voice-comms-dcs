@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 from scipy.signal import butter, lfilter
 
+from .language_models import get_piper_voice
+
 
 @dataclass(frozen=True)
 class RadioVoiceConfig:
@@ -20,6 +22,7 @@ class RadioVoiceConfig:
     piper_exe: str = "piper"
     piper_model: str = "models/piper/en_US-lessac-low.onnx"
     sample_rate: int = 16000
+    language: str = "en"
     bandpass_low_hz: float = 300.0
     bandpass_high_hz: float = 3000.0
     static_level: float = 0.012
@@ -30,7 +33,7 @@ class RadioVoice:
     """Local TTS wrapper with cockpit radio post-processing.
 
     The default model is `en_US-lessac-low`, which is small and fits the intentional radio-effect
-    output. Kokoro/Fast-Coqui can be added behind the same `synthesise_to_wav` method later.
+    output. Language-specific Piper voice mappings are provided by `language_models.py`.
     """
 
     def __init__(self, config: RadioVoiceConfig | None = None) -> None:
@@ -57,13 +60,15 @@ class RadioVoice:
         if not model_path.exists():
             raise FileNotFoundError(
                 f"Piper model not found: {model_path}. Update RadioVoiceConfig.piper_model "
-                "or run build/setup_local_models.ps1 -Profile minimum."
+                "or run python -m voice_comms_dcs.dependency_manager --languages en --all."
             )
 
         process = subprocess.run(
             [exe, "--model", str(model_path), "--output_file", str(output_path)],
             input=text,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             check=False,
         )
@@ -87,6 +92,20 @@ class RadioVoice:
         )
         write_wav_mono(output_wav, sample_rate, filtered)
         return output_wav
+
+
+def config_for_language(
+    language: str,
+    piper_exe: str = "piper",
+    static_level: float = 0.012,
+) -> RadioVoiceConfig:
+    voice = get_piper_voice(language)
+    return RadioVoiceConfig(
+        piper_exe=piper_exe,
+        piper_model=voice.model_path,
+        language=language,
+        static_level=static_level,
+    )
 
 
 def radio_filter(
@@ -158,14 +177,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", default="build_output/nimbus_radio.wav")
     parser.add_argument("--model", default=RadioVoiceConfig.piper_model)
     parser.add_argument("--piper-exe", default=RadioVoiceConfig.piper_exe)
+    parser.add_argument("--lang", default="en", choices=["en", "zh", "ko", "fr", "ru", "es"])
+    parser.add_argument("--use-language-model", action="store_true")
     args = parser.parse_args(argv)
 
-    voice = RadioVoice(
-        RadioVoiceConfig(
-            piper_exe=args.piper_exe,
-            piper_model=args.model,
-        )
+    config = config_for_language(args.lang, args.piper_exe) if args.use_language_model else RadioVoiceConfig(
+        piper_exe=args.piper_exe,
+        piper_model=args.model,
+        language=args.lang,
     )
+    voice = RadioVoice(config)
     output = voice.synthesise_to_wav(args.text, args.output)
     print(f"Wrote {output}")
     return 0
