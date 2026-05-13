@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "notes": "Preset button numbers are sane starting points only. Use voice-comms-dcs-input --list and the dashboard PTT test before flight.",
+  "presets": [
+    {
+      "id": "generic-keyboard",
+      "label": "Keyboard fallback",
+      "device_hint": "Any keyboard",
+      "joystick_index": 0,
+      "button_index": 1,
+      "hotkey": "right_ctrl",
+      "notes": "Uses Right Ctrl as global keyboard PTT. Joystick polling may be disabled."
+    },
+    {
+      "id": "thrustmaster-warthog",
+      "label": "Thrustmaster HOTAS Warthog",
+      "device_hint": "HOTAS Warthog Joystick",
+      "joystick_index": 0,
+      "button_index": 1,
+      "hotkey": "right_ctrl",
+      "notes": "Common first-trigger/weapon-release style mapping. Verify exact Windows button index in your device order."
+    },
+    {
+      "id": "thrustmaster-t16000m",
+      "label": "Thrustmaster T.16000M / TWCS",
+      "device_hint": "T.16000M or TWCS Throttle",
+      "joystick_index": 0,
+      "button_index": 2,
+      "hotkey": "right_ctrl",
+      "notes": "Good starter mapping for a reachable thumb button. Adjust if DCS already uses the same button."
+    },
+    {
+      "id": "winwing-orion",
+      "label": "Winwing Orion / Super Taurus family",
+      "device_hint": "WINWING Orion Stick or Throttle",
+      "joystick_index": 0,
+      "button_index": 3,
+      "hotkey": "right_ctrl",
+      "notes": "Device order varies heavily with SimAppPro. Verify with voice-comms-dcs-input --list."
+    },
+    {
+      "id": "logitech-x56",
+      "label": "Logitech/Saitek X56",
+      "device_hint": "Logitech X56 H.O.T.A.S.",
+      "joystick_index": 0,
+      "button_index": 4,
+      "hotkey": "right_ctrl",
+      "notes": "Recommended as a non-exclusive PTT button. Confirm index because X56 exposes stick/throttle separately."
+    },
+    {
+      "id": "logitech-x52",
+      "label": "Logitech/Saitek X52",
+      "device_hint": "Logitech X52 Flight Control System",
+      "joystick_index": 0,
+      "button_index": 5,
+      "hotkey": "right_ctrl",
+      "notes": "Starter preset for X52/X52 Pro. Adjust after testing."
+    },
+    {
+      "id": "viper-panel",
+      "label": "F-16 Viper panel / ICP style",
+      "device_hint": "F-16 ICP/UFC/DED panel or Viper HOTAS bundle",
+      "joystick_index": 0,
+      "button_index": 6,
+      "hotkey": "right_ctrl",
+      "notes": "Use for dedicated comm/PTT panel buttons. Exact index depends on the vendor firmware."
+    }
+  ]
+}
