@@ -69,6 +69,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+pip install -e .
 ```
 
 ### 2. Copy the command configuration
@@ -111,10 +112,22 @@ end
 
 A fuller example is provided in `dcs_scripts/mission_trigger_example.lua`.
 
-### 5. Run the desktop app
+### 5. Validate command matching without the GUI
 
 ```powershell
-python -m voice_comms_dcs --config config\commands.json
+voice-comms-dcs --config config\commands.json --test-phrase "request tanker"
+```
+
+You can also run the package module directly:
+
+```powershell
+python -m voice_comms_dcs.main --config config\commands.json --test-phrase "request tanker"
+```
+
+### 6. Run the desktop app
+
+```powershell
+voice-comms-dcs --config config\commands.json
 ```
 
 Use the GUI to start listening. You can also type a phrase into the manual test box to validate command matching before connecting a microphone.
