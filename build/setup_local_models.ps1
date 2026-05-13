@@ -2,9 +2,13 @@ param(
     [ValidateSet("minimum", "recommended", "quality")]
     [string]$Profile = "minimum",
 
-    [ValidateSet("lessac-low", "ryan-low")]
-    [string]$PiperVoice = "lessac-low",
+    [ValidateSet("en", "zh", "ko", "fr", "ru", "es")]
+    [string[]]$Languages = @("en"),
 
+    [ValidateSet("tiny", "base")]
+    [string]$WhisperQuality = "base",
+
+    [switch]$UseUi,
     [switch]$SkipOllama,
     [switch]$SkipPiper,
     [switch]$SkipWhisper
@@ -18,69 +22,33 @@ $ollamaModels = @{
     "quality" = "llama3.2:3b"
 }
 
-$piperVoices = @{
-    "lessac-low" = @{
-        "BaseUrl" = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low"
-        "Model" = "en_US-lessac-low.onnx"
-        "Json" = "en_US-lessac-low.onnx.json"
-    }
-    "ryan-low" = @{
-        "BaseUrl" = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/low"
-        "Model" = "en_US-ryan-low.onnx"
-        "Json" = "en_US-ryan-low.onnx.json"
-    }
-}
+$ollamaModel = $ollamaModels[$Profile]
+$languageArgs = $Languages -join " "
 
 Write-Host "== Voice-Comms-DCS local model setup =="
 Write-Host "Profile: $Profile"
-Write-Host "Piper voice: $PiperVoice"
+Write-Host "Languages: $languageArgs"
+Write-Host "Whisper quality: $WhisperQuality"
+Write-Host "Ollama model: $ollamaModel"
 
-if (-not $SkipOllama) {
-    $ollamaModel = $ollamaModels[$Profile]
-    Write-Host "\n== Ollama =="
-    Write-Host "Installing/pulling $ollamaModel"
-    if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
-        Write-Warning "Ollama command not found. Install Ollama first, then run: ollama pull $ollamaModel"
-    }
-    else {
-        ollama pull $ollamaModel
-    }
+$baseArgs = @(
+    "--languages"
+) + $Languages + @(
+    "--ollama-model", $ollamaModel,
+    "--whisper-quality", $WhisperQuality
+)
+
+if ($SkipOllama) { $baseArgs += "--skip-ollama" }
+if ($SkipPiper) { $baseArgs += "--skip-piper" }
+if ($SkipWhisper) { $baseArgs += "--skip-whisper" }
+
+if ($UseUi) {
+    python -m voice_comms_dcs.dependency_setup_ui @baseArgs
 }
-
-if (-not $SkipPiper) {
-    Write-Host "\n== Piper voice =="
-    $voice = $piperVoices[$PiperVoice]
-    $outputDir = "models\piper"
-    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-
-    $modelPath = Join-Path $outputDir $voice.Model
-    $jsonPath = Join-Path $outputDir $voice.Json
-
-    if (-not (Test-Path $modelPath)) {
-        $modelUrl = "$($voice.BaseUrl)/$($voice.Model)"
-        Write-Host "Downloading $modelUrl"
-        Invoke-WebRequest -Uri $modelUrl -OutFile $modelPath
-    }
-    else {
-        Write-Host "Piper model already exists: $modelPath"
-    }
-
-    if (-not (Test-Path $jsonPath)) {
-        $jsonUrl = "$($voice.BaseUrl)/$($voice.Json)"
-        Write-Host "Downloading $jsonUrl"
-        Invoke-WebRequest -Uri $jsonUrl -OutFile $jsonPath
-    }
-    else {
-        Write-Host "Piper metadata already exists: $jsonPath"
-    }
-}
-
-if (-not $SkipWhisper) {
-    Write-Host "\n== Whisper.cpp =="
-    $whisperModel = if ($Profile -eq "minimum") { "tiny.en" } else { "base.en" }
-    & "$PSScriptRoot\setup_whisper.ps1" -Model $whisperModel
+else {
+    python -m voice_comms_dcs.setup_dependencies @baseArgs
 }
 
 Write-Host "\nSetup complete."
-Write-Host "Minimum profile config: Ollama qwen2.5:0.5b, Piper en_US-lessac-low, Whisper tiny.en/base.en."
-Write-Host "Recommended profile config: Ollama qwen2.5:1.5b, Piper en_US-lessac-low, Whisper base.en."
+Write-Host "Minimum profile: qwen2.5:0.5b + selected Piper voices + Whisper $WhisperQuality."
+Write-Host "Recommended profile: qwen2.5:1.5b + selected Piper voices + Whisper base."
