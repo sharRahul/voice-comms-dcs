@@ -19,13 +19,16 @@
   "llm": {
     "provider": "ollama",
     "base_url": "http://127.0.0.1:11434",
-    "model": "qwen2.5:3b-instruct",
-    "timeout_seconds": 4.0
+    "model": "qwen2.5:0.5b",
+    "recommended_model": "qwen2.5:1.5b",
+    "high_quality_model": "llama3.2:3b",
+    "timeout_seconds": 3.0
   },
   "tts": {
     "engine": "piper",
     "piper_exe": "piper",
-    "piper_model": "models/piper/en_US-lessac-medium.onnx",
+    "piper_model": "models/piper/en_US-lessac-low.onnx",
+    "optional_male_model": "models/piper/en_US-ryan-low.onnx",
     "radio_filter": {
       "bandpass_low_hz": 300,
       "bandpass_high_hz": 3000,
