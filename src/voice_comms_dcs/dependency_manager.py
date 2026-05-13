@@ -3,12 +3,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
-import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import requests
 
@@ -116,13 +113,7 @@ class DependencyManager:
         keys = sorted({get_whisper_model_key(language, quality) for language in languages})
         for key in keys:
             spec = WHISPER_MODELS[key]
-            self.download_file(
-                DownloadItem(
-                    label=f"Whisper {key}",
-                    url=spec.url,
-                    path=self.root / spec.model_path,
-                )
-            )
+            self.download_file(DownloadItem(label=f"Whisper {key}", url=spec.url, path=self.root / spec.model_path))
 
     def download_piper_voices(self, languages: Iterable[str]) -> None:
         for language in validate_languages(tuple(languages)):
@@ -151,7 +142,7 @@ class DependencyManager:
             total = int(total_header) + existing if total_header and total_header.isdigit() else None
             mode = "ab" if existing > 0 and response.status_code == 206 else "wb"
             downloaded = existing
-            with partial.open(mode + "b") as handle:
+            with partial.open(mode) as handle:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
                     if not chunk:
                         continue
