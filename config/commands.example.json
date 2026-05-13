@@ -1,4 +1,8 @@
 {
+  "language": {
+    "selected": "en",
+    "installed": ["en"]
+  },
   "dcs_host": "127.0.0.1",
   "dcs_port": 10308,
   "telemetry": {
@@ -27,6 +31,7 @@
   "tts": {
     "engine": "piper",
     "piper_exe": "piper",
+    "language": "en",
     "piper_model": "models/piper/en_US-lessac-low.onnx",
     "optional_male_model": "models/piper/en_US-ryan-low.onnx",
     "radio_filter": {
@@ -37,13 +42,13 @@
   },
   "stt": {
     "engine": "whisper_cpp",
+    "language": "en",
     "model_path": "models/whisper/ggml-base.en.bin",
     "fallback_engine": "vosk",
     "sample_rate": 16000,
     "whisper": {
       "engine": "auto",
       "cli_exe": "whisper-cli",
-      "language": "en",
       "threads": 4,
       "beam_size": 1,
       "pre_roll_ms": 500,
@@ -76,61 +81,26 @@
     {
       "id": "request_tanker",
       "description": "Ask mission logic to run the tanker request action.",
-      "phrases": [
-        "request tanker",
-        "tanker request",
-        "texaco request rejoin",
-        "send tanker"
-      ],
-      "action": {
-        "type": "flag",
-        "flag": 5101,
-        "value": 1
-      }
+      "phrases": ["request tanker", "tanker request", "texaco request rejoin", "send tanker"],
+      "action": {"type": "flag", "flag": 5101, "value": 1}
     },
     {
       "id": "request_bogey_dope",
       "description": "Ask AWACS or mission logic for an air picture update.",
-      "phrases": [
-        "bogey dope",
-        "request bogey dope",
-        "picture",
-        "request picture"
-      ],
-      "action": {
-        "type": "flag",
-        "flag": 5102,
-        "value": 1
-      }
+      "phrases": ["bogey dope", "request bogey dope", "picture", "request picture"],
+      "action": {"type": "flag", "flag": 5102, "value": 1}
     },
     {
       "id": "gear_down",
       "description": "Ask mission logic or aircraft-specific adapter to handle gear-down workflow.",
-      "phrases": [
-        "gear down",
-        "lower the gear",
-        "drop gear"
-      ],
-      "action": {
-        "type": "flag",
-        "flag": 5110,
-        "value": 1
-      }
+      "phrases": ["gear down", "lower the gear", "drop gear"],
+      "action": {"type": "flag", "flag": 5110, "value": 1}
     },
     {
       "id": "abort_mission",
       "description": "Trigger an abort or return-to-base branch in mission logic.",
-      "phrases": [
-        "abort mission",
-        "mission abort",
-        "knock it off",
-        "return to base"
-      ],
-      "action": {
-        "type": "flag",
-        "flag": 5199,
-        "value": 1
-      }
+      "phrases": ["abort mission", "mission abort", "knock it off", "return to base"],
+      "action": {"type": "flag", "flag": 5199, "value": 1}
     }
   ]
 }
