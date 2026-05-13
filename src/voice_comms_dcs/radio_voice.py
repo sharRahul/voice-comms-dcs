@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import math
 import shutil
 import subprocess
 import tempfile
@@ -19,8 +18,8 @@ class RadioVoiceConfig:
 
     engine: str = "piper"
     piper_exe: str = "piper"
-    piper_model: str = "models/piper/en_US-lessac-medium.onnx"
-    sample_rate: int = 22050
+    piper_model: str = "models/piper/en_US-lessac-low.onnx"
+    sample_rate: int = 16000
     bandpass_low_hz: float = 300.0
     bandpass_high_hz: float = 3000.0
     static_level: float = 0.012
@@ -30,8 +29,8 @@ class RadioVoiceConfig:
 class RadioVoice:
     """Local TTS wrapper with cockpit radio post-processing.
 
-    The first supported backend is Piper. Kokoro/Fast-Coqui can be added behind the same
-    `synthesise_to_wav` method without changing Nimbus intelligence or WebRTC transport.
+    The default model is `en_US-lessac-low`, which is small and fits the intentional radio-effect
+    output. Kokoro/Fast-Coqui can be added behind the same `synthesise_to_wav` method later.
     """
 
     def __init__(self, config: RadioVoiceConfig | None = None) -> None:
@@ -57,7 +56,8 @@ class RadioVoice:
         model_path = Path(self.config.piper_model)
         if not model_path.exists():
             raise FileNotFoundError(
-                f"Piper model not found: {model_path}. Update RadioVoiceConfig.piper_model."
+                f"Piper model not found: {model_path}. Update RadioVoiceConfig.piper_model "
+                "or run build/setup_local_models.ps1 -Profile minimum."
             )
 
         process = subprocess.run(
