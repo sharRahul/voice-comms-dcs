@@ -125,7 +125,10 @@ def setup_dashboard_routes(
             raise web.HTTPBadRequest(reason="profile_id is required")
         if not callable(joystick_preset_setter):
             raise web.HTTPServiceUnavailable(reason="joystick preset setter is not available")
-        preset = joystick_preset_setter(profile_id)
+        try:
+            preset = joystick_preset_setter(profile_id)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(reason=str(exc)) from exc
         response = {
             "profile_id": preset.id,
             "label": preset.label,
@@ -185,7 +188,7 @@ def _snapshot(
     latest = telemetry_listener.latest()
     context = context_manager.get_context()
     ptt_state = ptt_state_provider() if callable(ptt_state_provider) else {}
-    telemetry = latest.data or {}
+    telemetry = context.telemetry or latest.data or {}
     language = language_provider() if callable(language_provider) else "en"
     settings = settings_provider() if callable(settings_provider) else {"personality": "professional", "skin": "default"}
     if hasattr(settings, "__dict__"):
