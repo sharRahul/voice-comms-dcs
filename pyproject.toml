@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voice-comms-dcs"
-version = "0.3.0"
-description = "Local-first voice, telemetry, AI wingman, HID PTT, and WebRTC dashboard bridge for DCS World."
+version = "0.4.0"
+description = "Local-first multilingual voice, telemetry, AI wingman, smart installer, and WebRTC dashboard bridge for DCS World."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -15,6 +15,7 @@ authors = [
 dependencies = [
   "sounddevice>=0.4.6",
   "vosk>=0.3.45",
+  "pyinstaller>=6.6.0",
   "aiortc>=1.9.0",
   "aiohttp>=3.9.5",
   "websockets>=12.0",
@@ -35,6 +36,8 @@ voice-comms-dcs-nimbus = "voice_comms_dcs.nimbus_intelligence:main"
 voice-comms-dcs-radio-voice = "voice_comms_dcs.radio_voice:main"
 voice-comms-dcs-input = "voice_comms_dcs.input_manager:main"
 voice-comms-dcs-whisper = "voice_comms_dcs.stt_whisper_engine:main"
+voice-comms-dcs-install-lua = "voice_comms_dcs.install_lua_bridge:main"
+voice-comms-dcs-setup-dependencies = "voice_comms_dcs.setup_dependencies:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
