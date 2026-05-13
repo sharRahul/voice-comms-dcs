@@ -26,14 +26,14 @@ from .input_manager import (
     PttEvent,
     PttEventType,
 )
-from .language_models import get_piper_voice, get_whisper_language_code
+from .language_models import WHISPER_MODELS, get_piper_voice, get_whisper_language_code, get_whisper_model_key
 from .nimbus_intelligence import NimbusIntelligence
 from .radio_voice import RadioVoice, RadioVoiceConfig
 from .stt_whisper_engine import RollingAudioBuffer, WhisperConfig, WhisperSttEngine
 from .telemetry_listener import TelemetryListener
 
 AUDIO_SAMPLE_RATE = 48000
-AUDIO_FRAME_SAMPLES = 960  # 20 ms at 48 kHz
+AUDIO_FRAME_SAMPLES = 960
 WHISPER_SAMPLE_RATE = 16000
 
 
@@ -158,7 +158,8 @@ class WebRtcBridge:
         )
         self.whisper_engine_name = whisper_engine
         self.whisper_cli_exe = whisper_cli_exe
-        self.whisper_model_path = whisper_model_path or self.config.stt.model_path
+        self.manual_whisper_model_path = whisper_model_path
+        self.whisper_model_path = self._resolve_whisper_model_path(self.current_language)
         self.whisper = self._create_whisper(self.current_language, self.whisper_model_path)
         self.audio_buffer = RollingAudioBuffer(sample_rate=WHISPER_SAMPLE_RATE, pre_roll_ms=500)
         self.dashboard_events = DashboardEventHub()
@@ -194,6 +195,13 @@ class WebRtcBridge:
         self.app.on_startup.append(self._on_startup)
         self.app.on_cleanup.append(self._on_cleanup)
 
+    def _resolve_whisper_model_path(self, language: str) -> str:
+        if self.manual_whisper_model_path:
+            return self.manual_whisper_model_path
+        key = get_whisper_model_key(language, "base")
+        path = WHISPER_MODELS[key].model_path
+        return path if Path(path).exists() else self.config.stt.model_path
+
     def _create_whisper(self, language: str, model_path: str) -> WhisperSttEngine:
         return WhisperSttEngine(
             WhisperConfig(
@@ -221,7 +229,7 @@ class WebRtcBridge:
         self.current_language = language
         self.nimbus.set_language(language)
         self.radio_voice = self._create_radio_voice(language)
-        # Keep the currently selected Whisper model path; users should install multilingual weights for non-English.
+        self.whisper_model_path = self._resolve_whisper_model_path(language)
         self.whisper = self._create_whisper(language, self.whisper_model_path)
 
     async def _on_startup(self, _app: web.Application) -> None:
@@ -244,26 +252,10 @@ class WebRtcBridge:
         raise web.HTTPFound("/dashboard")
 
     async def health(self, _request: web.Request) -> web.Response:
-        return web.json_response(
-            {
-                "status": "ok",
-                "language": self.current_language,
-                "peers": len(self.peer_connections),
-                "aircraft_profile": self.aircraft_profile.id,
-                "telemetry_age_seconds": self.telemetry.latest().age_seconds,
-                "context": self.context_manager.get_context().prompt_prefix,
-                "ptt": self.ptt_state(),
-            }
-        )
+        return web.json_response({"status": "ok", "language": self.current_language, "whisper_model": self.whisper_model_path, "peers": len(self.peer_connections), "aircraft_profile": self.aircraft_profile.id, "telemetry_age_seconds": self.telemetry.latest().age_seconds, "context": self.context_manager.get_context().prompt_prefix, "ptt": self.ptt_state()})
 
     def ptt_state(self) -> dict[str, Any]:
-        return {
-            "active": self.audio_buffer.recording,
-            "source": self._ptt_source,
-            "last_transcript": self._last_transcript,
-            "last_stt_latency_seconds": self._last_stt_latency,
-            "language": self.current_language,
-        }
+        return {"active": self.audio_buffer.recording, "source": self._ptt_source, "last_transcript": self._last_transcript, "last_stt_latency_seconds": self._last_stt_latency, "language": self.current_language, "whisper_model": self.whisper_model_path}
 
     def _handle_ptt_event_threadsafe(self, event: PttEvent) -> None:
         if self._loop is not None:
@@ -292,17 +284,7 @@ class WebRtcBridge:
         self._last_stt_latency = result.duration_seconds
         transcript = result.text.strip()
         self._last_transcript = transcript
-        await self.dashboard_events.broadcast(
-            {
-                "type": "transcript",
-                "speaker": "pilot",
-                "text": transcript,
-                "language": result.language,
-                "stt_latency_seconds": result.duration_seconds,
-                "audio_seconds": result.audio_seconds,
-                "total_elapsed_seconds": time.perf_counter() - started,
-            }
-        )
+        await self.dashboard_events.broadcast({"type": "transcript", "speaker": "pilot", "text": transcript, "language": result.language, "stt_latency_seconds": result.duration_seconds, "audio_seconds": result.audio_seconds, "total_elapsed_seconds": time.perf_counter() - started})
         if transcript:
             await self._process_transcript(transcript, None)
 
@@ -342,10 +324,7 @@ class WebRtcBridge:
                     await pc.setLocalDescription(answer)
                     await ws.send_json({"type": pc.localDescription.type, "sdp": pc.localDescription.sdp})
                 elif message_type == "transcript":
-                    await self._process_transcript(
-                        str(payload.get("text", "")),
-                        lambda text: asyncio.create_task(ws.send_json({"type": "nimbus", "text": text})),
-                    )
+                    await self._process_transcript(str(payload.get("text", "")), lambda text: asyncio.create_task(ws.send_json({"type": "nimbus", "text": text})))
                 elif message_type == "ptt_start":
                     await self._handle_ptt_event(PttEvent(PttEventType.START_PTT, "dashboard", time.monotonic()))
                 elif message_type == "ptt_stop":
@@ -368,17 +347,7 @@ class WebRtcBridge:
         started = time.perf_counter()
         decision, _dispatch = self.nimbus.handle_pilot_text(text)
         response = decision.response_text
-        await self.dashboard_events.broadcast(
-            {
-                "type": "conversation",
-                "pilot": text,
-                "nimbus": response,
-                "language": self.current_language,
-                "intent": decision.intent.value,
-                "command_id": decision.command_id,
-                "elapsed_seconds": time.perf_counter() - started,
-            }
-        )
+        await self.dashboard_events.broadcast({"type": "conversation", "pilot": text, "nimbus": response, "language": self.current_language, "intent": decision.intent.value, "command_id": decision.command_id, "elapsed_seconds": time.perf_counter() - started})
         if reply is not None:
             maybe_reply = reply(response)
             if asyncio.iscoroutine(maybe_reply):
