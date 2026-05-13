@@ -57,6 +57,7 @@ a = Analysis(
         "voice_comms_dcs.rwr_adapters",
         "voice_comms_dcs.runtime_benchmark",
         "voice_comms_dcs.release_manifest",
+        "voice_comms_dcs.model_manifest",
     ],
     hookspath=[],
     hooksconfig={},
