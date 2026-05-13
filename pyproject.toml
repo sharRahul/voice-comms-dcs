@@ -28,6 +28,8 @@ dependencies = [
 voice-comms-dcs = "voice_comms_dcs.main:main"
 voice-comms-dcs-webrtc = "voice_comms_dcs.webrtc_bridge:main"
 voice-comms-dcs-telemetry = "voice_comms_dcs.telemetry_listener:main"
+voice-comms-dcs-nimbus = "voice_comms_dcs.nimbus_intelligence:main"
+voice-comms-dcs-radio-voice = "voice_comms_dcs.radio_voice:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
