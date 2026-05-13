@@ -8,6 +8,7 @@ project_root = Path.cwd()
 added_files = [
     (str(project_root / "config" / "commands.example.json"), "config"),
     (str(project_root / "config" / "aircraft_profiles"), "config/aircraft_profiles"),
+    (str(project_root / "config" / "i18n"), "config/i18n"),
     (str(project_root / "src" / "voice_comms_dcs" / "web_ui"), "voice_comms_dcs/web_ui"),
     (str(project_root / "dcs_scripts" / "VoiceBridge.lua"), "dcs_scripts"),
     (str(project_root / "dcs_scripts" / "dcs_telemetry.lua"), "dcs_scripts"),
@@ -19,6 +20,7 @@ added_files = [
     (str(project_root / "docs" / "architecture.md"), "docs"),
     (str(project_root / "docs" / "phase2_conversational_cockpit.md"), "docs"),
     (str(project_root / "docs" / "phase3_frontend_high_fidelity.md"), "docs"),
+    (str(project_root / "docs" / "phase4_global_deployment.md"), "docs"),
     (str(project_root / "docs" / "model_selection.md"), "docs"),
     (str(project_root / "docs" / "security_report.md"), "docs"),
     (str(project_root / "docs" / "installer_roadmap.md"), "docs"),
@@ -43,6 +45,7 @@ a = Analysis(
         "pygame",
         "pynput",
         "whisper_cpp_python",
+        "winreg",
     ],
     hookspath=[],
     hooksconfig={},
