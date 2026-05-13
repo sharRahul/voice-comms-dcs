@@ -1,0 +1,16 @@
+# CI-safe build dependencies for GitHub Actions.
+# Keep heavy/native optional runtime dependencies such as whisper-cpp-python out of CI.
+# The installed app still supports whisper.cpp via the CLI path and optional local installs.
+
+pyinstaller>=6.6.0
+sounddevice>=0.4.6
+vosk>=0.3.45
+aiortc>=1.9.0
+aiohttp>=3.9.5
+websockets>=12.0
+av>=12.0.0
+numpy>=1.26.4
+scipy>=1.13.0
+requests>=2.32.0
+pygame>=2.5.2
+pynput>=1.7.6
