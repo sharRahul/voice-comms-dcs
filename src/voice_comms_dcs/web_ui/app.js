@@ -40,7 +40,7 @@ function t(key, fallback) {
   return translations[key] || fallback || key;
 }
 
-async function loadLanguage(language) {
+async function loadLanguage(language, notifyBackend = true) {
   activeLanguage = language;
   localStorage.setItem('vcdcs-language', language);
   languageSelect.value = language;
@@ -53,6 +53,7 @@ async function loadLanguage(language) {
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
     el.placeholder = t(el.dataset.i18nPlaceholder, el.placeholder);
   });
+  if (!notifyBackend) return;
   await fetch('/api/language', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -115,7 +116,9 @@ function connectLiveSocket() {
       logLine('pilot', 'PILOT', message.pilot || '');
       logLine('', 'NIMBUS', `${message.nimbus || ''} [${message.intent || 'intent'}]`);
     }
-    if (message.type === 'language') loadLanguage(message.language).catch(() => {});
+    if (message.type === 'language' && message.language !== activeLanguage) {
+      loadLanguage(message.language, false).catch(() => {});
+    }
     if (message.type === 'system') logLine('system', 'SYSTEM', message.message || '');
     if (message.type === 'error') logLine('error', 'ERROR', message.message || 'Unknown error');
   };
