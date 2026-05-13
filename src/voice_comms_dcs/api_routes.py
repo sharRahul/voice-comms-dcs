@@ -8,6 +8,8 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
+from .dashboard_settings import VALID_PERSONALITIES, VALID_SKINS
+from .input_profiles import presets_as_api_payload
 from .language_models import SUPPORTED_LANGUAGES
 
 
@@ -46,6 +48,10 @@ def setup_dashboard_routes(
     ptt_state_provider: Any,
     language_provider: Any | None = None,
     language_setter: Any | None = None,
+    settings_provider: Any | None = None,
+    personality_setter: Any | None = None,
+    skin_setter: Any | None = None,
+    joystick_preset_setter: Any | None = None,
 ) -> None:
     """Attach local-only dashboard routes to the aiohttp app."""
 
@@ -75,7 +81,7 @@ def setup_dashboard_routes(
 
     async def status(_request: web.Request) -> web.Response:
         return web.json_response(
-            _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider),
+            _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider, settings_provider),
             dumps=lambda data: json.dumps(data, ensure_ascii=False),
         )
 
@@ -89,6 +95,47 @@ def setup_dashboard_routes(
         await event_hub.broadcast({"type": "language", "language": language})
         return web.json_response({"language": language})
 
+    async def set_settings(request: web.Request) -> web.Response:
+        payload = await request.json()
+        changed: dict[str, Any] = {}
+        if "personality" in payload:
+            personality = str(payload["personality"]).lower()
+            if personality not in VALID_PERSONALITIES:
+                raise web.HTTPBadRequest(reason=f"Unsupported personality: {personality}")
+            if callable(personality_setter):
+                personality_setter(personality)
+            changed["personality"] = personality
+        if "skin" in payload:
+            skin = str(payload["skin"]).lower()
+            if skin not in VALID_SKINS:
+                raise web.HTTPBadRequest(reason=f"Unsupported skin: {skin}")
+            if callable(skin_setter):
+                skin_setter(skin)
+            changed["skin"] = skin
+        await event_hub.broadcast({"type": "settings", **changed})
+        return web.json_response(changed, dumps=lambda data: json.dumps(data, ensure_ascii=False))
+
+    async def joystick_presets(_request: web.Request) -> web.Response:
+        return web.json_response(presets_as_api_payload(), dumps=lambda data: json.dumps(data, ensure_ascii=False))
+
+    async def set_joystick_preset(request: web.Request) -> web.Response:
+        payload = await request.json()
+        profile_id = str(payload.get("profile_id", ""))
+        if not profile_id:
+            raise web.HTTPBadRequest(reason="profile_id is required")
+        if not callable(joystick_preset_setter):
+            raise web.HTTPServiceUnavailable(reason="joystick preset setter is not available")
+        preset = joystick_preset_setter(profile_id)
+        response = {
+            "profile_id": preset.id,
+            "label": preset.label,
+            "joystick_index": preset.joystick_index,
+            "button_index": preset.button_index,
+            "hotkey": preset.hotkey,
+        }
+        await event_hub.broadcast({"type": "joystick_preset", **response})
+        return web.json_response(response, dumps=lambda data: json.dumps(data, ensure_ascii=False))
+
     async def live_ws(request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=15.0)
         await ws.prepare(request)
@@ -97,7 +144,7 @@ def setup_dashboard_routes(
             await ws.send_json(
                 {
                     "type": "status",
-                    "payload": _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider),
+                    "payload": _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider, settings_provider),
                 }
             )
             while True:
@@ -105,7 +152,7 @@ def setup_dashboard_routes(
                     await ws.send_json(
                         {
                             "type": "status",
-                            "payload": _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider),
+                            "payload": _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider, settings_provider),
                         }
                     )
                     message = await asyncio.wait_for(ws.receive(), timeout=0.75)
@@ -122,6 +169,9 @@ def setup_dashboard_routes(
     app.router.add_get("/api/i18n/{language}", i18n)
     app.router.add_get("/api/status", status)
     app.router.add_post("/api/language", set_language)
+    app.router.add_post("/api/settings", set_settings)
+    app.router.add_get("/api/joystick-presets", joystick_presets)
+    app.router.add_post("/api/joystick-preset", set_joystick_preset)
     app.router.add_get("/api/live", live_ws)
 
 
@@ -130,16 +180,21 @@ def _snapshot(
     telemetry_listener: Any,
     ptt_state_provider: Any,
     language_provider: Any | None = None,
+    settings_provider: Any | None = None,
 ) -> dict[str, Any]:
     latest = telemetry_listener.latest()
     context = context_manager.get_context()
     ptt_state = ptt_state_provider() if callable(ptt_state_provider) else {}
     telemetry = latest.data or {}
     language = language_provider() if callable(language_provider) else "en"
+    settings = settings_provider() if callable(settings_provider) else {"personality": "professional", "skin": "default"}
+    if hasattr(settings, "__dict__"):
+        settings = settings.__dict__
     return {
         "telemetry_age_seconds": latest.age_seconds,
         "language": language,
         "available_languages": SUPPORTED_LANGUAGES,
+        "settings": settings,
         "ptt": ptt_state,
         "mode": getattr(context.mode, "value", str(context.mode)),
         "warning": context.warning.message if context.warning else None,
