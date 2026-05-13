@@ -10,57 +10,66 @@
   <main class="shell">
     <section class="hero glass">
       <div>
-        <p class="eyebrow">Voice-Comms-DCS Phase 3</p>
-        <h1>Nimbus Cockpit Dashboard</h1>
-        <p class="muted">Local WebRTC, HOTAS PTT, Whisper.cpp STT, telemetry, and radio voice monitoring.</p>
+        <p class="eyebrow">Voice-Comms-DCS Phase 4</p>
+        <h1 data-i18n="dashboard.title">Nimbus Cockpit Dashboard</h1>
+        <p class="muted" data-i18n="dashboard.subtitle">Local WebRTC, HOTAS PTT, Whisper.cpp STT, telemetry, and radio voice monitoring.</p>
       </div>
       <div class="status-stack">
-        <span id="connectionStatus" class="pill warn">Dashboard connecting</span>
-        <span id="pttStatus" class="pill">PTT idle</span>
-        <span id="modeStatus" class="pill">Mode unknown</span>
+        <label class="select-label" for="languageSelect" data-i18n="label.language">Language</label>
+        <select id="languageSelect">
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+          <option value="ko">한국어</option>
+          <option value="fr">Français</option>
+          <option value="ru">Русский</option>
+          <option value="es">Español</option>
+        </select>
+        <span id="connectionStatus" class="pill warn" data-i18n="status.connecting">Dashboard connecting</span>
+        <span id="pttStatus" class="pill" data-i18n="status.ptt_idle">PTT idle</span>
+        <span id="modeStatus" class="pill" data-i18n="status.mode_unknown">Mode unknown</span>
       </div>
     </section>
 
     <section class="grid">
       <article class="glass panel span-2">
         <div class="panel-header">
-          <h2>Conversation Terminal</h2>
+          <h2 data-i18n="section.conversation">Conversation Terminal</h2>
           <div class="button-row">
-            <button id="connectBtn">Connect WebRTC</button>
-            <button id="pttStartBtn">PTT Start</button>
-            <button id="pttStopBtn">PTT Stop</button>
+            <button id="connectBtn" data-i18n="button.connect_webrtc">Connect WebRTC</button>
+            <button id="pttStartBtn" data-i18n="button.ptt_start">PTT Start</button>
+            <button id="pttStopBtn" data-i18n="button.ptt_stop">PTT Stop</button>
           </div>
         </div>
         <div id="terminal" class="terminal"></div>
         <form id="manualForm" class="manual-form">
-          <input id="manualText" type="text" placeholder="Type a test transcript, e.g. request tanker" autocomplete="off" />
-          <button type="submit">Send</button>
+          <input id="manualText" type="text" data-i18n-placeholder="manual.placeholder" placeholder="Type a test transcript, e.g. request tanker" autocomplete="off" />
+          <button type="submit" data-i18n="button.send">Send</button>
         </form>
         <audio id="remoteAudio" autoplay controls></audio>
       </article>
 
       <article class="glass panel">
-        <h2>Telemetry Gauges</h2>
+        <h2 data-i18n="section.telemetry">Telemetry Gauges</h2>
         <div class="gauges">
-          <div class="gauge"><span>Fuel</span><strong id="fuelGauge">--</strong><em>kg</em></div>
-          <div class="gauge"><span>Altitude</span><strong id="altGauge">--</strong><em>ft</em></div>
-          <div class="gauge"><span>Airspeed</span><strong id="speedGauge">--</strong><em>kt</em></div>
-          <div class="gauge"><span>G Load</span><strong id="gGauge">--</strong><em>g</em></div>
+          <div class="gauge"><span data-i18n="gauge.fuel">Fuel</span><strong id="fuelGauge">--</strong><em>kg</em></div>
+          <div class="gauge"><span data-i18n="gauge.altitude">Altitude</span><strong id="altGauge">--</strong><em>ft</em></div>
+          <div class="gauge"><span data-i18n="gauge.airspeed">Airspeed</span><strong id="speedGauge">--</strong><em>kt</em></div>
+          <div class="gauge"><span data-i18n="gauge.g_load">G Load</span><strong id="gGauge">--</strong><em>g</em></div>
         </div>
       </article>
 
       <article class="glass panel">
-        <h2>AI Personality</h2>
-        <label class="select-label" for="personalitySelect">Response Style</label>
+        <h2 data-i18n="section.personality">AI Personality</h2>
+        <label class="select-label" for="personalitySelect" data-i18n="label.personality">Response Style</label>
         <select id="personalitySelect">
-          <option value="professional">Professional / Tactical</option>
-          <option value="conversational">Conversational Wingman</option>
+          <option value="professional" data-i18n="personality.professional">Professional / Tactical</option>
+          <option value="conversational" data-i18n="personality.conversational">Conversational Wingman</option>
         </select>
-        <p class="muted small">Phase 3 UI toggle is local-state only. Back-end personality wiring is planned for the next pass.</p>
+        <p class="muted small">Phase 4 language selection is wired. Personality backend wiring remains a later milestone.</p>
       </article>
 
       <article class="glass panel span-2">
-        <h2>Context Window</h2>
+        <h2 data-i18n="section.context">Context Window</h2>
         <pre id="contextBox" class="context-box">Waiting for telemetry...</pre>
       </article>
     </section>
