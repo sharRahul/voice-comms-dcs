@@ -14,6 +14,8 @@ from typing import Protocol
 import numpy as np
 from scipy.signal import butter, lfilter
 
+from .language_models import get_whisper_language_code
+
 
 DEFAULT_SAMPLE_RATE = 16000
 
@@ -22,9 +24,8 @@ DEFAULT_SAMPLE_RATE = 16000
 class WhisperConfig:
     """Whisper.cpp local STT configuration.
 
-    Use `tiny.en` or `base.en` for sub-second command recognition on most DCS machines.
-    The engine prefers the `whisper_cpp_python` binding when installed, then falls back to a
-    whisper.cpp CLI binary such as `whisper-cli` or `main.exe`.
+    Use `tiny.en` or `base.en` for English-only command recognition. Use multilingual
+    `tiny` or `base` weights for Chinese, Korean, French, Russian, and Spanish.
     """
 
     model_path: str = "models/whisper/ggml-base.en.bin"
@@ -46,6 +47,7 @@ class TranscriptionResult:
     duration_seconds: float
     audio_seconds: float
     engine: str
+    language: str
 
 
 class WhisperBackend(Protocol):
@@ -154,10 +156,12 @@ class WhisperCliBackend:
                 capture_output=True,
                 text=True,
                 check=False,
+                encoding="utf-8",
+                errors="replace",
             )
             txt_path = output_base.with_suffix(".txt")
             if txt_path.exists():
-                return txt_path.read_text(encoding="utf-8", errors="ignore").strip()
+                return txt_path.read_text(encoding="utf-8", errors="replace").strip()
             if process.returncode != 0:
                 raise RuntimeError(process.stderr.strip() or f"whisper.cpp exited {process.returncode}")
             return process.stdout.strip()
@@ -186,7 +190,7 @@ class WhisperSttEngine:
             lowpass_hz=self.config.lowpass_hz,
         )
         if prepared.size == 0:
-            return TranscriptionResult("", 0.0, 0.0, self.config.engine)
+            return TranscriptionResult("", 0.0, 0.0, self.config.engine, self.config.language)
         audio_seconds = prepared.size / float(self.config.sample_rate)
         text = self.backend.transcribe(prepared, self.config.sample_rate)
         elapsed = time.perf_counter() - started
@@ -195,6 +199,7 @@ class WhisperSttEngine:
             duration_seconds=elapsed,
             audio_seconds=audio_seconds,
             engine=self.backend.__class__.__name__,
+            language=self.config.language,
         )
 
     def _create_backend(self) -> WhisperBackend:
@@ -304,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cli-exe", default=WhisperConfig.cli_exe)
     parser.add_argument("--wav", required=True, help="16-bit PCM WAV file to transcribe.")
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--lang", default="en", choices=["en", "zh", "ko", "fr", "ru", "es"])
     args = parser.parse_args(argv)
 
     sample_rate, samples = read_wav(Path(args.wav))
@@ -313,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
             engine=args.engine,
             cli_exe=args.cli_exe,
             threads=args.threads,
+            language=get_whisper_language_code(args.lang),
         )
     )
     result = engine.transcribe(samples, sample_rate)
