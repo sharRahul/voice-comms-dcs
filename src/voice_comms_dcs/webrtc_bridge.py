@@ -31,6 +31,8 @@ from .input_profiles import JoystickPreset, resolve_joystick_preset
 from .language_models import WHISPER_MODELS, get_piper_voice, get_whisper_language_code, get_whisper_model_key
 from .nimbus_intelligence import NimbusIntelligence
 from .radio_voice import RadioVoice, RadioVoiceConfig
+from .rwr_adapters import RwrAdapterRegistry
+from .srs_audio import SrsExternalAudioAdapter
 from .stt_whisper_engine import RollingAudioBuffer, WhisperConfig, WhisperSttEngine
 from .telemetry_listener import TelemetryListener
 
@@ -124,7 +126,7 @@ class NimbusAudioTrack(AudioStreamTrack):
 
 
 class WebRtcBridge:
-    """Local WebRTC, multilingual STT/TTS, dashboard settings, and Nimbus bridge."""
+    """Local WebRTC, multilingual STT/TTS, dashboard settings, RWR, SRS, and Nimbus bridge."""
 
     def __init__(
         self,
@@ -145,6 +147,9 @@ class WebRtcBridge:
         language: str | None = None,
         personality: str = "professional",
         skin: str = "default",
+        rwr_profile: str | None = None,
+        rwr_registry_path: str = "config/rwr/adapters.json",
+        srs_config_path: str = "config/srs/srs_audio.json",
     ) -> None:
         self.config_path = config_path
         self.host = host
@@ -154,6 +159,13 @@ class WebRtcBridge:
         self.settings = DashboardSettings(personality=personality, skin=skin)
         self.aircraft_profile: AircraftProfile = load_aircraft_profile(aircraft_profile_path)
         self.context_manager = ContextManager(aircraft_profile=self.aircraft_profile.prompt_identity())
+        self.rwr_profile = rwr_profile
+        self.rwr_registry = RwrAdapterRegistry.from_json(rwr_registry_path)
+        self.srs_adapter = (
+            SrsExternalAudioAdapter.from_json(srs_config_path)
+            if Path(srs_config_path).exists()
+            else SrsExternalAudioAdapter()
+        )
         self.nimbus = NimbusIntelligence(
             self.config,
             context_manager=self.context_manager,
@@ -164,7 +176,7 @@ class WebRtcBridge:
         self.telemetry = TelemetryListener(
             host=telemetry_host,
             port=telemetry_port,
-            on_telemetry=self.context_manager.update_telemetry,
+            on_telemetry=self._handle_telemetry,
         )
         self.whisper_engine_name = whisper_engine
         self.whisper_cli_exe = whisper_cli_exe
@@ -213,6 +225,10 @@ class WebRtcBridge:
         )
         self.app.on_startup.append(self._on_startup)
         self.app.on_cleanup.append(self._on_cleanup)
+
+    def _handle_telemetry(self, telemetry: dict[str, Any]) -> None:
+        normalised = self.rwr_registry.normalise_telemetry(telemetry, self.rwr_profile)
+        self.context_manager.update_telemetry(normalised)
 
     def _resolve_whisper_model_path(self, language: str) -> str:
         if self.manual_whisper_model_path:
@@ -303,6 +319,7 @@ class WebRtcBridge:
                 "telemetry_age_seconds": self.telemetry.latest().age_seconds,
                 "context": self.context_manager.get_context().prompt_prefix,
                 "ptt": self.ptt_state(),
+                "srs_enabled": self.srs_adapter.config.enabled,
             }
         )
 
@@ -444,9 +461,19 @@ class WebRtcBridge:
     async def _speak_response(self, response: str) -> None:
         try:
             wav = await asyncio.to_thread(self.radio_voice.synthesise_to_temp_wav, response)
+            srs_result = await asyncio.to_thread(self.srs_adapter.dispatch_wav, wav, "nimbus")
+            if srs_result.enabled:
+                await self.dashboard_events.broadcast(
+                    {
+                        "type": "srs_audio",
+                        "audio_file": str(srs_result.audio_file),
+                        "returncode": srs_result.returncode,
+                        "message": srs_result.message,
+                    }
+                )
             await asyncio.gather(*(track.enqueue_wav(wav) for track in list(self.audio_tracks)), return_exceptions=True)
         except Exception as exc:
-            await self.dashboard_events.broadcast({"type": "error", "message": f"TTS failed: {exc}"})
+            await self.dashboard_events.broadcast({"type": "error", "message": f"TTS/SRS failed: {exc}"})
 
     def run(self) -> None:
         web.run_app(self.app, host=self.host, port=self.port)
@@ -496,6 +523,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--language", choices=["en", "zh", "ko", "fr", "ru", "es"])
     parser.add_argument("--personality", default="professional", choices=["professional", "conversational", "instructor", "rio"])
     parser.add_argument("--skin", default="default", choices=["default", "f16", "f18", "f15", "su27", "mig29", "su57", "f22"])
+    parser.add_argument("--rwr-profile")
+    parser.add_argument("--rwr-registry", default="config/rwr/adapters.json")
+    parser.add_argument("--srs-config", default="config/srs/srs_audio.json")
     parser.add_argument("--disable-input-manager", action="store_true")
     args = parser.parse_args(argv)
 
@@ -517,6 +547,9 @@ def main(argv: list[str] | None = None) -> int:
         language=args.language,
         personality=args.personality,
         skin=args.skin,
+        rwr_profile=args.rwr_profile,
+        rwr_registry_path=args.rwr_registry,
+        srs_config_path=args.srs_config,
     )
     bridge.run()
     return 0
