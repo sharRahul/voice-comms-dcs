@@ -14,6 +14,10 @@ const connectBtn = document.getElementById('connectBtn');
 const pttStartBtn = document.getElementById('pttStartBtn');
 const pttStopBtn = document.getElementById('pttStopBtn');
 const languageSelect = document.getElementById('languageSelect');
+const personalitySelect = document.getElementById('personalitySelect');
+const skinSelect = document.getElementById('skinSelect');
+const joystickPresetSelect = document.getElementById('joystickPresetSelect');
+const joystickPresetHint = document.getElementById('joystickPresetHint');
 
 let liveSocket;
 let signalSocket;
@@ -75,11 +79,70 @@ function fmt(value, decimals = 0) {
   return num.toFixed(decimals);
 }
 
+function applySettings(settings = {}) {
+  if (settings.personality && personalitySelect) {
+    personalitySelect.value = settings.personality;
+  }
+  if (settings.skin && skinSelect) {
+    skinSelect.value = settings.skin;
+    document.body.dataset.skin = settings.skin;
+    localStorage.setItem('vcdcs-skin', settings.skin);
+  }
+}
+
+async function postSettings(settings) {
+  applySettings(settings);
+  await fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings)
+  }).catch(error => logLine('error', 'SETTINGS', error.message || error));
+  if (signalSocket && signalSocket.readyState === WebSocket.OPEN) {
+    signalSocket.send(JSON.stringify({ type: 'settings', ...settings }));
+  }
+}
+
+async function loadJoystickPresets() {
+  try {
+    const response = await fetch('/api/joystick-presets');
+    const payload = await response.json();
+    for (const preset of payload.presets || []) {
+      const option = document.createElement('option');
+      option.value = preset.id;
+      option.textContent = preset.label;
+      option.dataset.hint = `${preset.device_hint || preset.label}: joystick ${preset.joystick_index}, button ${preset.button_index}, hotkey ${preset.hotkey}. ${preset.notes || ''}`;
+      joystickPresetSelect.appendChild(option);
+    }
+  } catch (error) {
+    logLine('error', 'PRESETS', error.message || error);
+  }
+}
+
+async function applyJoystickPreset(profileId) {
+  if (!profileId) return;
+  const option = joystickPresetSelect.selectedOptions[0];
+  if (option?.dataset.hint) joystickPresetHint.textContent = option.dataset.hint;
+  try {
+    const response = await fetch('/api/joystick-preset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const preset = await response.json();
+    logLine('system', 'PTT', `Loaded ${preset.label}: joystick ${preset.joystick_index}, button ${preset.button_index}`);
+  } catch (error) {
+    logLine('error', 'PRESET', error.message || error);
+  }
+}
+
 function updateStatus(payload) {
   const age = Number(payload.telemetry_age_seconds);
   if (payload.language && payload.language !== activeLanguage) {
     languageSelect.value = payload.language;
   }
+  if (payload.settings) applySettings(payload.settings);
+
   if (Number.isFinite(age) && age < 2.0) {
     setPill(connectionStatus, `Telemetry live ${age.toFixed(1)}s`, 'ok');
   } else {
@@ -115,10 +178,13 @@ function connectLiveSocket() {
     if (message.type === 'conversation') {
       logLine('pilot', 'PILOT', message.pilot || '');
       logLine('', 'NIMBUS', `${message.nimbus || ''} [${message.intent || 'intent'}]`);
+      if (message.settings) applySettings(message.settings);
     }
     if (message.type === 'language' && message.language !== activeLanguage) {
       loadLanguage(message.language, false).catch(() => {});
     }
+    if (message.type === 'settings') applySettings(message);
+    if (message.type === 'joystick_preset') logLine('system', 'PTT', `Preset active: ${message.label}`);
     if (message.type === 'system') logLine('system', 'SYSTEM', message.message || '');
     if (message.type === 'error') logLine('error', 'ERROR', message.message || 'Unknown error');
   };
@@ -160,9 +226,12 @@ async function connectWebRtc() {
     if (answer.type === 'answer') {
       await peerConnection.setRemoteDescription(answer);
       signalSocket.send(JSON.stringify({ type: 'language', language: activeLanguage }));
+      signalSocket.send(JSON.stringify({ type: 'settings', personality: personalitySelect.value, skin: skinSelect.value }));
       logLine('system', 'SYSTEM', 'WebRTC connected');
     } else if (answer.type === 'nimbus') {
       logLine('', 'NIMBUS', answer.text || '');
+    } else if (answer.type === 'settings') {
+      applySettings(answer);
     }
   };
 }
@@ -185,5 +254,10 @@ connectBtn.addEventListener('click', () => connectWebRtc().catch(err => logLine(
 pttStartBtn.addEventListener('click', () => signalSocket?.send(JSON.stringify({ type: 'ptt_start' })));
 pttStopBtn.addEventListener('click', () => signalSocket?.send(JSON.stringify({ type: 'ptt_stop' })));
 languageSelect.addEventListener('change', () => loadLanguage(languageSelect.value));
+personalitySelect?.addEventListener('change', () => postSettings({ personality: personalitySelect.value }));
+skinSelect?.addEventListener('change', () => postSettings({ skin: skinSelect.value }));
+joystickPresetSelect?.addEventListener('change', () => applyJoystickPreset(joystickPresetSelect.value));
 
+applySettings({ skin: localStorage.getItem('vcdcs-skin') || 'default' });
+loadJoystickPresets();
 loadLanguage(activeLanguage).then(connectLiveSocket).catch(() => connectLiveSocket());
