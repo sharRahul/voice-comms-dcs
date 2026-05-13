@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import queue
 import threading
+from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, messagebox
 
 from .dependency_manager import DependencyManager, DependencyPlan, validate_languages
+from .model_manifest import build_model_manifest, write_model_manifest
 
 
 class DependencySetupUi(tk.Tk):
@@ -56,6 +58,10 @@ class DependencySetupUi(tk.Tk):
                     whisper_quality=self.whisper_quality,
                 )
             )
+            self.events.put(("manifest", None, "Writing model checksum manifest..."))
+            manifest = build_model_manifest(root=Path("."))
+            write_model_manifest(manifest, Path("build_output/model_manifest.json"))
+            self.events.put(("manifest", 100.0, "Model checksum manifest written."))
             self.events.put(("done", 100.0, "Setup complete."))
         except Exception as exc:
             self.failed = True
@@ -74,7 +80,7 @@ class DependencySetupUi(tk.Tk):
                 self.progress.configure(mode="determinate", value=max(0.0, min(100.0, percent)))
             if kind == "done":
                 self.close_button.configure(state=tk.NORMAL)
-                messagebox.showinfo("Voice-Comms-DCS", "Local model setup complete.")
+                messagebox.showinfo("Voice-Comms-DCS", "Local model setup complete. Model checksum manifest written to build_output/model_manifest.json.")
             if kind == "error":
                 self.close_button.configure(state=tk.NORMAL)
                 messagebox.showerror("Voice-Comms-DCS", message)
