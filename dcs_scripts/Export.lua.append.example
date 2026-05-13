@@ -2,18 +2,31 @@
 -- Append this block to:
 --   %USERPROFILE%\Saved Games\DCS\Scripts\Export.lua
 --
--- Keep VoiceBridge.lua in the same Scripts folder.
+-- Keep VoiceBridge.lua and dcs_telemetry.lua in the same Scripts folder.
+
+local function vcdcs_log(component, message)
+    local line = "[" .. component .. "] " .. tostring(message)
+    if env and env.info then
+        env.info(line)
+    else
+        print(line)
+    end
+end
 
 local voiceBridgePath = lfs.writedir() .. [[Scripts\VoiceBridge.lua]]
-local ok, bridgeOrError = pcall(dofile, voiceBridgePath)
+local bridgeOk, bridgeOrError = pcall(dofile, voiceBridgePath)
 
-if ok and bridgeOrError then
+if bridgeOk and bridgeOrError then
     bridgeOrError.installExportCallbacks()
 else
-    local message = "[VoiceBridge] Failed to load " .. tostring(voiceBridgePath) .. ": " .. tostring(bridgeOrError)
-    if env and env.info then
-        env.info(message)
-    else
-        print(message)
-    end
+    vcdcs_log("VoiceBridge", "Failed to load " .. tostring(voiceBridgePath) .. ": " .. tostring(bridgeOrError))
+end
+
+local telemetryPath = lfs.writedir() .. [[Scripts\dcs_telemetry.lua]]
+local telemetryOk, telemetryOrError = pcall(dofile, telemetryPath)
+
+if telemetryOk and telemetryOrError then
+    telemetryOrError.installExportCallbacks()
+else
+    vcdcs_log("DcsTelemetry", "Failed to load " .. tostring(telemetryPath) .. ": " .. tostring(telemetryOrError))
 end
