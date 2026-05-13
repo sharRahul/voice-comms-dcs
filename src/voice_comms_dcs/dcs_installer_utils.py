@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
 import os
 import shutil
 import sys
@@ -41,52 +40,80 @@ class InstallResult:
     message: str
 
 
-def get_saved_games_path() -> Path:
-    """Resolve Saved Games using the Windows Shell Folders API when available.
+def get_saved_games_candidates() -> list[Path]:
+    """Resolve likely Saved Games paths, including moved Shell Folder locations.
 
-    This handles users who moved Saved Games to a different drive. Falls back to
-    `%USERPROFILE%\\Saved Games` when the shell lookup is unavailable.
+    The first candidates come from Windows User Shell Folders/Shell Folders registry values. This
+    is more reliable than assuming `%USERPROFILE%\\Saved Games` when the user moved Saved Games
+    to another drive.
     """
+    candidates: list[Path] = []
+
     if sys.platform.startswith("win"):
         try:
-            # FOLDERID_SavedGames = {4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}
-            folder_id = ctypes.c_char_p(bytes.fromhex("ff325c4c9dbbb043b5b42d72e54eaaa4"))
-            # Avoid complex COM struct dependencies in the scaffold; use PowerShell fallback below.
-        except Exception:
-            pass
+            import winreg
 
-        try:
-            import subprocess
-
-            command = [
-                "powershell",
-                "-NoProfile",
-                "-Command",
-                "[Environment]::GetFolderPath('MyDocuments')",
+            keys = [
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"),
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders"),
             ]
-            documents = subprocess.check_output(command, text=True, encoding="utf-8", errors="replace").strip()
-            candidate = Path(documents).parent / "Saved Games"
-            if candidate.exists():
-                return candidate
+            for root_key, key_path in keys:
+                try:
+                    with winreg.OpenKey(root_key, key_path) as key:
+                        for value_name in ("{4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}", "SavedGames", "Saved Games"):
+                            try:
+                                value, _value_type = winreg.QueryValueEx(key, value_name)
+                                expanded = os.path.expandvars(str(value))
+                                candidates.append(Path(expanded))
+                            except FileNotFoundError:
+                                continue
+                except FileNotFoundError:
+                    continue
         except Exception:
             pass
 
     profile = Path(os.environ.get("USERPROFILE", str(Path.home())))
-    return profile / "Saved Games"
+    candidates.extend([
+        profile / "Saved Games",
+        Path.home() / "Saved Games",
+    ])
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        resolved = candidate.expanduser()
+        key = str(resolved).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(resolved)
+    return unique
+
+
+def get_saved_games_path() -> Path:
+    for candidate in get_saved_games_candidates():
+        if candidate.exists():
+            return candidate
+    return get_saved_games_candidates()[0]
 
 
 def discover_dcs_targets(saved_games: Path | None = None) -> list[DcsInstallTarget]:
-    root = saved_games or get_saved_games_path()
-    if not root.exists():
-        return []
+    roots = [saved_games] if saved_games else get_saved_games_candidates()
     targets: list[DcsInstallTarget] = []
-    for child in root.iterdir():
-        if not child.is_dir():
+    seen: set[str] = set()
+    for root in roots:
+        if root is None or not root.exists():
             continue
-        name = child.name.lower()
-        if name == "dcs" or name.startswith("dcs.") or name in {"dcs.openbeta", "dcs.openalpha"}:
-            scripts_dir = child / "Scripts"
-            targets.append(DcsInstallTarget(root=child, scripts_dir=scripts_dir, export_lua=scripts_dir / "Export.lua"))
+        for child in root.iterdir():
+            if not child.is_dir():
+                continue
+            name = child.name.lower()
+            if name == "dcs" or name.startswith("dcs.") or name in {"dcs.openbeta", "dcs.openalpha"}:
+                key = str(child.resolve()).lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                scripts_dir = child / "Scripts"
+                targets.append(DcsInstallTarget(root=child, scripts_dir=scripts_dir, export_lua=scripts_dir / "Export.lua"))
     return targets
 
 
@@ -206,6 +233,9 @@ def main(argv: list[str] | None = None) -> int:
     targets = discover_dcs_targets(saved_games)
     if not targets:
         print("No DCS Saved Games folders found.")
+        print("Searched:")
+        for path in get_saved_games_candidates():
+            print(f"  {path}")
         return 1
 
     if args.uninstall:
