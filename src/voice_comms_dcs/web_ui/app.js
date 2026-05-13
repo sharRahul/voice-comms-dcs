@@ -13,11 +13,14 @@ const remoteAudio = document.getElementById('remoteAudio');
 const connectBtn = document.getElementById('connectBtn');
 const pttStartBtn = document.getElementById('pttStartBtn');
 const pttStopBtn = document.getElementById('pttStopBtn');
+const languageSelect = document.getElementById('languageSelect');
 
 let liveSocket;
 let signalSocket;
 let peerConnection;
 let dataChannel;
+let activeLanguage = localStorage.getItem('vcdcs-language') || 'en';
+let translations = {};
 
 function logLine(kind, speaker, text) {
   const line = document.createElement('div');
@@ -33,6 +36,33 @@ function escapeHtml(text) {
   }[ch]));
 }
 
+function t(key, fallback) {
+  return translations[key] || fallback || key;
+}
+
+async function loadLanguage(language) {
+  activeLanguage = language;
+  localStorage.setItem('vcdcs-language', language);
+  languageSelect.value = language;
+  const response = await fetch(`/api/i18n/${language}`);
+  translations = await response.json();
+  document.documentElement.lang = language;
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n, el.textContent);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset.i18nPlaceholder, el.placeholder);
+  });
+  await fetch('/api/language', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ language })
+  }).catch(() => {});
+  if (signalSocket && signalSocket.readyState === WebSocket.OPEN) {
+    signalSocket.send(JSON.stringify({ type: 'language', language }));
+  }
+}
+
 function setPill(element, text, cls) {
   element.className = `pill ${cls || ''}`;
   element.textContent = text;
@@ -46,6 +76,9 @@ function fmt(value, decimals = 0) {
 
 function updateStatus(payload) {
   const age = Number(payload.telemetry_age_seconds);
+  if (payload.language && payload.language !== activeLanguage) {
+    languageSelect.value = payload.language;
+  }
   if (Number.isFinite(age) && age < 2.0) {
     setPill(connectionStatus, `Telemetry live ${age.toFixed(1)}s`, 'ok');
   } else {
@@ -53,7 +86,7 @@ function updateStatus(payload) {
   }
 
   const ptt = payload.ptt || {};
-  setPill(pttStatus, ptt.active ? `PTT active ${ptt.source || ''}` : 'PTT idle', ptt.active ? 'ok' : '');
+  setPill(pttStatus, ptt.active ? `PTT active ${ptt.source || ''}` : t('status.ptt_idle', 'PTT idle'), ptt.active ? 'ok' : '');
   setPill(modeStatus, `Mode ${payload.mode || 'unknown'}`, payload.mode === 'combat' ? 'danger' : 'ok');
 
   const internal = payload.internal || {};
@@ -82,6 +115,7 @@ function connectLiveSocket() {
       logLine('pilot', 'PILOT', message.pilot || '');
       logLine('', 'NIMBUS', `${message.nimbus || ''} [${message.intent || 'intent'}]`);
     }
+    if (message.type === 'language') loadLanguage(message.language).catch(() => {});
     if (message.type === 'system') logLine('system', 'SYSTEM', message.message || '');
     if (message.type === 'error') logLine('error', 'ERROR', message.message || 'Unknown error');
   };
@@ -105,11 +139,7 @@ async function connectWebRtc() {
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: true,
-        autoGainControl: true
-      },
+      audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true },
       video: false
     });
     for (const track of stream.getAudioTracks()) {
@@ -126,6 +156,7 @@ async function connectWebRtc() {
     const answer = JSON.parse(event.data);
     if (answer.type === 'answer') {
       await peerConnection.setRemoteDescription(answer);
+      signalSocket.send(JSON.stringify({ type: 'language', language: activeLanguage }));
       logLine('system', 'SYSTEM', 'WebRTC connected');
     } else if (answer.type === 'nimbus') {
       logLine('', 'NIMBUS', answer.text || '');
@@ -150,5 +181,6 @@ manualForm.addEventListener('submit', event => {
 connectBtn.addEventListener('click', () => connectWebRtc().catch(err => logLine('error', 'WEBRTC', err.message || err)));
 pttStartBtn.addEventListener('click', () => signalSocket?.send(JSON.stringify({ type: 'ptt_start' })));
 pttStopBtn.addEventListener('click', () => signalSocket?.send(JSON.stringify({ type: 'ptt_stop' })));
+languageSelect.addEventListener('change', () => loadLanguage(languageSelect.value));
 
-connectLiveSocket();
+loadLanguage(activeLanguage).then(connectLiveSocket).catch(() => connectLiveSocket());
