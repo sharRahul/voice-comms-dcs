@@ -3,12 +3,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import platform
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
+
+GENERATED_MANIFEST_NAMES = {
+    "release_manifest.json",
+    "release_manifest.json.sha256",
+    "model_manifest.json",
+    "model_manifest.json.sha256",
+}
 
 
 @dataclass(frozen=True)
@@ -35,15 +41,20 @@ def sha256_file(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def should_skip_file(path: Path) -> bool:
+    return path.name in GENERATED_MANIFEST_NAMES or path.name.endswith((".part", ".tmp"))
+
+
 def iter_files(paths: Iterable[Path]) -> Iterable[Path]:
     for path in paths:
         if not path.exists():
             continue
         if path.is_file():
-            yield path
+            if not should_skip_file(path):
+                yield path
             continue
         for child in sorted(path.rglob("*")):
-            if child.is_file() and not child.name.endswith((".part", ".tmp")):
+            if child.is_file() and not should_skip_file(child):
                 yield child
 
 
