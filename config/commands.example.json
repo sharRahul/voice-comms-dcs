@@ -9,6 +9,7 @@
   "webrtc": {
     "host": "127.0.0.1",
     "port": 8765,
+    "dashboard_path": "/dashboard",
     "vad": {
       "engine": "energy",
       "rms_threshold": 0.012,
@@ -31,19 +32,42 @@
       "static_level": 0.012
     }
   },
-  "matching": {
-    "min_confidence": 0.78
-  },
   "stt": {
-    "engine": "vosk",
-    "model_path": "models/vosk-model-small-en-us-0.15",
+    "engine": "whisper_cpp",
+    "model_path": "models/whisper/ggml-base.en.bin",
+    "fallback_engine": "vosk",
     "sample_rate": 16000,
-    "device": null
+    "whisper": {
+      "engine": "auto",
+      "cli_exe": "whisper-cli",
+      "language": "en",
+      "threads": 4,
+      "beam_size": 1,
+      "pre_roll_ms": 500,
+      "highpass_hz": 120,
+      "lowpass_hz": 7600
+    },
+    "vosk": {
+      "model_path": "models/vosk-model-small-en-us-0.15",
+      "device": null
+    }
+  },
+  "input": {
+    "keyboard_enabled": true,
+    "joystick_enabled": true,
+    "hotkey": "right_ctrl",
+    "joystick_index": 0,
+    "joystick_button": 1,
+    "poll_hz": 60
   },
   "push_to_talk": {
     "enabled": true,
     "hotkey": "right_ctrl",
-    "release_grace_ms": 300
+    "release_grace_ms": 300,
+    "pre_roll_ms": 500
+  },
+  "matching": {
+    "min_confidence": 0.78
   },
   "commands": [
     {
