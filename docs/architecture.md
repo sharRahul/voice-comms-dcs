@@ -2,11 +2,33 @@
 
 ## 1. Purpose
 
-Voice-Comms-DCS provides a Windows desktop bridge between spoken pilot phrases and deterministic DCS World mission actions. The first release focuses on the most reliable integration path: recognised speech is matched to a configured command, sent over UDP, then converted into a DCS user flag that mission logic can consume.
+Voice-Comms-DCS is a local-first DCS World companion project. Phase 1 provides a safe one-way bridge from recognised pilot speech to mission-controlled DCS user flags. Phase 2 adds the Nimbus conversational cockpit layer: WebRTC audio, JSON telemetry ingestion, a telemetry-aware local AI switchboard, and radio-effect local TTS.
 
-This avoids brittle attempts to automate the live F10 radio UI directly and keeps the mission designer in control of every action triggered by voice.
+The design goal is immersion without unsafe automation. Voice-Comms-DCS does not execute arbitrary Lua, does not use cloud AI APIs, and does not rely on brittle keyboard automation to click dynamic F10 menu positions.
 
-## 2. High-level data flow
+## 2. Architecture at a glance
+
+```mermaid
+flowchart LR
+    Pilot[Pilot mic / PTT] --> WebRTC[Local WebRTC audio bridge]
+    WebRTC --> VAD[Local VAD]
+    VAD --> STT[Local STT / transcript]
+    STT --> Nimbus[Nimbus intent switchboard]
+    Telemetry[DCS JSON telemetry UDP 10309] --> Context[Context manager]
+    Context --> Nimbus
+    Nimbus -->|Command intent| Cmd[UDP command packet 10308]
+    Cmd --> VoiceBridge[DCS VoiceBridge.lua]
+    VoiceBridge --> Flags[trigger.action.setUserFlag]
+    Flags --> Mission[Mission triggers / Lua logic]
+    Nimbus -->|Informational or chat response| TTS[Local Piper/Kokoro TTS]
+    TTS --> DSP[Radio DSP]
+    DSP --> WebRTC
+    WebRTC --> PilotOut[Pilot headset / virtual audio / SRS path]
+```
+
+## 3. Phase 1 command bridge
+
+Phase 1 remains the safety-critical command path.
 
 ```mermaid
 flowchart LR
@@ -24,171 +46,197 @@ flowchart LR
     K --> L
 ```
 
-## 3. Layered design
-
-### 3.1 Input layer
-
-The input layer captures microphone audio from Windows through `sounddevice`. The current backend uses Vosk for offline speech-to-text. This keeps the application usable without an internet connection and avoids sending cockpit audio to a cloud service.
-
-Future backends can be added behind the same listener interface:
-
-- Whisper.cpp or faster-whisper for better accuracy.
-- Windows Speech Recognition for users who want native Windows integration.
-- OpenAI Whisper API as an optional cloud backend where privacy and connectivity requirements allow it.
-
-### 3.2 Intelligence layer
-
-The first implementation uses deterministic phrase matching rather than a large language model. This is intentional for safety. DCS mission actions should be predictable, auditable, and easy to debug.
-
-The matcher supports:
-
-- Exact phrase matches.
-- Phrases embedded in longer transcripts.
-- Fuzzy matching with a configurable confidence threshold.
-
-Example:
-
-```json
-{
-  "id": "request_tanker",
-  "phrases": ["request tanker", "tanker request", "texaco request rejoin"],
-  "action": {
-    "type": "flag",
-    "flag": 5101,
-    "value": 1
-  }
-}
-```
-
-A future LLM-based intent parser can sit between STT and the deterministic matcher, but it should resolve to a known command ID only. It should not generate arbitrary Lua or uncontrolled DCS actions.
-
-### 3.3 Integration layer
-
 The Python app sends UDP packets to DCS on localhost port `10308`:
 
 ```text
 VCDCS|request_tanker|flag|5101|1
 ```
 
-The Lua bridge validates:
+The Lua bridge validates the protocol prefix, command ID, action type, and numeric flag values before setting mission flags.
 
-- Protocol prefix.
-- Safe command ID format.
-- Supported action type.
-- Numeric flag ID for flag actions.
+## 4. Phase 2 conversational cockpit
 
-It then attempts to set the user flag through mission scripting APIs. In mission scripting contexts, this is direct via:
+Phase 2 adds these modules:
 
-```lua
-trigger.action.setUserFlag("5101", 1)
+| Module | File | Responsibility |
+|---|---|---|
+| WebRTC bridge | `src/voice_comms_dcs/webrtc_bridge.py` | Local WebSocket signaling, aiortc peer connection, inbound/outbound audio tracks |
+| Compatibility entrypoint | `src/voice_comms_dcs/webrtc_audio_server.py` | Alias entrypoint for the Phase 2 prompt naming |
+| Telemetry listener | `src/voice_comms_dcs/telemetry_listener.py` | JSON-over-UDP listener for DCS state packets |
+| DCS telemetry exporter | `dcs_scripts/dcs_telemetry.lua` | Export.lua telemetry collection and 10 Hz UDP send |
+| Context manager | `src/voice_comms_dcs/context_manager.py` | Formats telemetry into a dynamic AI context prefix and state machine |
+| Nimbus intelligence | `src/voice_comms_dcs/nimbus_intelligence.py` | Intent switchboard for command, informational, conversation, and warning responses |
+| Radio voice | `src/voice_comms_dcs/radio_voice.py` | Piper TTS wrapper and radio-style DSP filter |
+| Aircraft profiles | `src/voice_comms_dcs/aircraft_profiles.py` | Swappable aircraft/callsign/persona profiles |
+
+## 5. Sequence diagram
+
+```mermaid
+sequenceDiagram
+    participant Pilot
+    participant Client as Local WebRTC Client
+    participant Bridge as aiortc Bridge
+    participant VAD as VAD Gate
+    participant STT as Local STT
+    participant DCS as DCS Telemetry Export
+    participant Context as Context Manager
+    participant Nimbus as Nimbus Intelligence
+    participant Lua as DCS VoiceBridge
+    participant TTS as Local TTS + Radio DSP
+
+    Pilot->>Client: Speaks using PTT or mic
+    Client->>Bridge: WebRTC audio frames
+    Bridge->>VAD: PCM chunks
+    VAD-->>Bridge: Speech frames only
+    Bridge->>STT: Speech segment
+    STT-->>Nimbus: Transcript
+    DCS-->>Context: JSON telemetry over UDP 10309
+    Context-->>Nimbus: Dynamic context prefix
+    Nimbus->>Nimbus: Classify intent
+    alt Command intent
+        Nimbus->>Lua: UDP VCDCS command over 10308
+        Lua->>Lua: Validate packet and set user flag
+        Nimbus->>TTS: Tactical acknowledgement
+    else Informational intent
+        Nimbus->>TTS: Telemetry answer
+    else Conversational intent
+        Nimbus->>Nimbus: Local Ollama/llama.cpp response
+        Nimbus->>TTS: Wingman response
+    end
+    TTS-->>Bridge: Filtered radio audio
+    Bridge-->>Client: WebRTC outbound audio
+    Client-->>Pilot: Headset / virtual cable / SRS route
 ```
 
-In Export.lua contexts, the bridge attempts to use a mission bridge where available. This is documented as a compatibility layer, not the preferred mission architecture.
+## 6. Telemetry model
 
-### 3.4 Mission logic layer
+Telemetry is sent from DCS to Python as compact JSON on UDP `127.0.0.1:10309`.
 
-Mission designers should wire voice actions to mission flags, triggers, or framework code. This is the cleanest way to integrate with DCS because F10 radio menu items are often dynamic and mission-specific.
+Top-level shape:
 
-Example mission pattern:
-
-```lua
-if trigger.misc.getUserFlag("5101") == 1 then
-    trigger.action.outText("Voice command received: Request Tanker", 10)
-    -- Execute tanker routing, spawn, tasking, or message logic.
-    trigger.action.setUserFlag("5101", 0)
-end
+```json
+{
+  "protocol": "VCDCS_TELEMETRY",
+  "version": 1,
+  "aircraft": {},
+  "internal": {},
+  "spatial": {},
+  "tactical": {}
+}
 ```
 
-## 4. The F10 problem
+Required conceptual fields:
 
-DCS F10 radio menus are built dynamically by mission scripts using `missionCommands.addCommand`, `missionCommands.addSubMenu`, and related APIs. External applications generally do not have a safe, stable, public interface to inspect and click whichever F10 item is currently visible to the player.
+| Category | Examples |
+|---|---|
+| Internal | fuel total/internal, engine RPM, flaps, gear, G-load |
+| Spatial | heading, altitude ASL/AGL, IAS/TAS, coordinates |
+| Tactical | locked target range, velocity, bearing, RWR alert placeholders |
 
-For a robust first release, Voice-Comms-DCS does not try to emulate keyboard navigation such as `\`, `F10`, `F1`, `F2`, etc. That approach breaks easily when menu order changes.
+DCS module export APIs vary by aircraft. The Lua exporter is defensive and leaves unavailable values as `null`. Aircraft-specific RWR and radar adapters can be added later without changing the Python context interface.
 
-Recommended design instead:
+## 7. Dynamic context window
 
-1. Treat voice commands as mission events.
-2. Map spoken phrases to user flags or registered command names.
-3. Let the mission own the final action.
-4. Reset flags after handling them.
-
-Future dynamic F10 support can be designed through one of these adapters:
-
-- Mission-side command registry that mirrors available voice-capable commands to the desktop app.
-- DCS-BIOS integration for cockpit/control bindings where applicable.
-- DCS-gRPC integration for richer external mission control where available.
-- A custom Lua wrapper around `missionCommands.addCommand` that records command IDs when menus are created.
-
-## 5. UDP packet contract
-
-### Flag action
+The context manager converts telemetry into a compact prompt prefix:
 
 ```text
-VCDCS|<command_id>|flag|<flag_number>|<flag_value>
+[Context: Mode: COMBAT; Alt ASL: 15000 ft; IAS: 410 kt; Fuel: 4200 kg; Locked range: 5 nm]
 ```
 
-Example:
+Combat mode is triggered when:
 
-```text
-VCDCS|request_bogey_dope|flag|5102|1
-```
+- G-load is greater than `4.0`.
+- Locked target range is `10 nm` or less.
+- RWR severity indicates `missile`, `launch`, `critical`, or `spike`.
 
-### Named command action
+In combat mode, Nimbus is constrained to short tactical responses of ten words or fewer.
 
-```text
-VCDCS|<command_id>|command|<command_name>
-```
+## 8. Intent switchboard
 
-Named commands require the mission to register a Lua handler:
+Nimbus uses a hybrid strategy:
 
-```lua
-VoiceBridge.handlers["request_tanker"] = function(command_id)
-    trigger.action.outText("Handled " .. command_id, 10)
-end
-```
+| Intent | Example | Behavior |
+|---|---|---|
+| Command | “Request tanker” / “Gear down” | Use deterministic command matcher and send UDP packet to DCS |
+| Informational | “What is my fuel?” | Answer directly from telemetry |
+| Conversational | “Talk me through the intercept” | Use local Ollama/llama.cpp-compatible model |
+| Warning | RWR/missile/fuel priority | Override lower-priority outputs in combat mode |
 
-## 6. Latency strategy
+Command intent remains deterministic so the LLM never invents DCS actions.
 
-Expected latency is the sum of:
+## 9. WebRTC and audio strategy
 
-1. Microphone capture buffer.
-2. STT recognition time.
-3. Phrase matching time.
-4. UDP dispatch time.
-5. Lua polling interval.
-6. Mission trigger response time.
+The WebRTC bridge keeps a local peer connection open for low-latency audio. In v0.2, it includes:
 
-Recommended tuning:
+- WebSocket signaling endpoint at `/ws`.
+- Health endpoint at `/health`.
+- Inbound audio sink.
+- Energy-based VAD fallback.
+- Outbound Nimbus audio track.
+- Test transcript path for integration before full STT chunking is completed.
 
-- Keep Vosk model small for low latency.
-- Use short, distinct command phrases.
-- Keep Lua polling around `0.10` seconds for near-real-time response.
-- Avoid using cloud STT during multiplayer or high workload missions unless network latency is acceptable.
-- Show the last transcript and last matched command in the UI for debugging.
+Recommended PTT behavior:
 
-## 7. Push-to-talk plan
+1. Keep WebRTC connected continuously.
+2. Gate speech processing with PTT or VAD.
+3. Prefer PTT in combat to avoid false positives from DCS, SRS, breathing, and cockpit noise.
+4. Add a 250 to 350 ms release grace window before finalising the utterance.
 
-The repository includes a config placeholder for push-to-talk. The intended design is:
+## 10. TTS and radio post-processing
 
-1. Add a global hotkey listener.
-2. Only pass audio frames to STT while the hotkey is held.
-3. Show UI state: `Idle`, `PTT Held`, `Recognising`, `Command Sent`.
-4. Add a short post-release grace window, for example 300 ms, to capture final syllables.
+`radio_voice.py` supports local Piper TTS first. The radio DSP chain applies:
 
-Recommended default: Right Ctrl or a joystick button mapped through a companion hotkey tool.
+1. 300 Hz to 3 kHz bandpass.
+2. Gentle compression.
+3. Slight white-noise overlay.
+4. Output normalisation.
 
-## 8. Security and safety principles
+The result is designed to sound like an AI wingman/RIO coming through a cockpit radio rather than a clean desktop assistant voice.
 
-- The Lua bridge rejects packets without the `VCDCS` prefix.
-- Command IDs must use safe identifier characters.
-- Flag IDs must be numeric.
-- The first release does not execute arbitrary Lua received over UDP.
-- The desktop app binds outbound UDP only; DCS listens locally.
-- Missions should use a reserved flag range to avoid collisions with unrelated trigger logic.
+## 11. Virtual audio / SRS strategy
 
-## 9. Release milestones
+The first Phase 2 implementation outputs Nimbus speech through the local WebRTC outbound audio track. Routing options:
 
-### v0.1 — Local prototype
+| Route | Purpose |
+|---|---|
+| Headset output | Fastest test path |
+| VB-Audio Virtual Cable | Route Nimbus to mixers, OBS, or SRS input chains |
+| VoiceMeeter | Mix game, SRS, and Nimbus levels |
+| SRS-specific integration | Later adapter for radio-channel realism |
+
+## 12. Safety principles
+
+- No cloud processing.
+- No `os.execute` in Lua.
+- No arbitrary Lua received over UDP.
+- DCS actions use the existing Flag/Command bridge.
+- UDP defaults to localhost only.
+- Telemetry export is rate-limited to avoid DCS frame stutters.
+- LLM output is never used as executable code.
+
+## 13. Performance guidance
+
+Recommended baseline:
+
+- Keep DCS telemetry at 10 Hz until tested.
+- Use small local LLMs such as 2B to 3B quantized models first.
+- Use Vosk or Whisper.cpp small/base for local STT.
+- Prefer Piper for low-latency CPU TTS.
+- Keep context compact and cap combat-mode responses.
+
+Typical overhead targets:
+
+| Component | Practical target |
+|---|---|
+| Telemetry Lua | < 1 ms per export tick |
+| Telemetry rate | 10 Hz default |
+| WebRTC audio frame | 20 ms frames |
+| Local LLM | 2B to 3B first; 7B only if spare VRAM exists |
+| TTS | Short tactical replies under 1 second where possible |
+
+## 14. Release milestones
+
+### v0.1 — Command bridge
 
 - Python GUI.
 - Vosk backend.
@@ -197,23 +245,28 @@ Recommended default: Right Ctrl or a joystick button mapped through a companion 
 - Lua bridge.
 - User flag actions.
 
-### v0.2 — Usability pass
+### v0.2 — Nimbus scaffold
 
-- Microphone selector.
-- Push-to-talk.
-- Command confidence display.
-- Packaged `.exe` build.
+- WebRTC bridge.
+- Telemetry exporter and listener.
+- Context manager.
+- Combat-mode state machine.
+- Local Ollama-compatible intelligence hook.
+- Piper radio-voice DSP.
+- Aircraft profiles.
 
-### v0.3 — Mission-builder features
+### v0.3 — Real-time maturity
 
-- Mission command registry.
-- Export/import command profiles.
-- Per-aircraft command profiles.
-- Multiplayer-safe guidance.
+- Full STT from WebRTC audio chunks.
+- Joystick/global-hotkey PTT.
+- Browser/local WebRTC client UI.
+- Aircraft-specific RWR adapters.
+- SRS routing adapter.
 
 ### v1.0 — Product release
 
-- Signed Windows installer.
-- Documented DCS installation wizard.
+- Signed installer.
+- DCS install helper with backups.
 - Stable protocol versioning.
-- Example DCS missions.
+- Example missions.
+- Performance benchmark guidance.
