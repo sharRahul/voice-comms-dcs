@@ -38,6 +38,7 @@ voice-comms-dcs-input = "voice_comms_dcs.input_manager:main"
 voice-comms-dcs-whisper = "voice_comms_dcs.stt_whisper_engine:main"
 voice-comms-dcs-install-lua = "voice_comms_dcs.install_lua_bridge:main"
 voice-comms-dcs-setup-dependencies = "voice_comms_dcs.setup_dependencies:main"
+voice-comms-dcs-setup-dependencies-ui = "voice_comms_dcs.dependency_setup_ui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
