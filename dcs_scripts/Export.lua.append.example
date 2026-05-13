@@ -1,0 +1,19 @@
+-- Voice-Comms-DCS Export.lua installation snippet
+-- Append this block to:
+--   %USERPROFILE%\Saved Games\DCS\Scripts\Export.lua
+--
+-- Keep VoiceBridge.lua in the same Scripts folder.
+
+local voiceBridgePath = lfs.writedir() .. [[Scripts\VoiceBridge.lua]]
+local ok, bridgeOrError = pcall(dofile, voiceBridgePath)
+
+if ok and bridgeOrError then
+    bridgeOrError.installExportCallbacks()
+else
+    local message = "[VoiceBridge] Failed to load " .. tostring(voiceBridgePath) .. ": " .. tostring(bridgeOrError)
+    if env and env.info then
+        env.info(message)
+    else
+        print(message)
+    end
+end
