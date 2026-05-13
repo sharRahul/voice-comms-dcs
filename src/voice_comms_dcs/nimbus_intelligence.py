@@ -34,13 +34,15 @@ class LocalLlmClient:
     """Small Ollama-compatible local LLM client.
 
     No cloud endpoints are used. The default endpoint is the local Ollama HTTP API.
+    The default model is intentionally tiny because command execution and telemetry answers are
+    deterministic; the LLM is only for non-critical conversational wingman responses.
     """
 
     def __init__(
         self,
         base_url: str = "http://127.0.0.1:11434",
-        model: str = "qwen2.5:3b-instruct",
-        timeout_seconds: float = 4.0,
+        model: str = "qwen2.5:0.5b",
+        timeout_seconds: float = 3.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -56,7 +58,7 @@ class LocalLlmClient:
                 "format": "json",
                 "options": {
                     "temperature": 0.2,
-                    "num_ctx": 2048,
+                    "num_ctx": 1024,
                 },
             },
             timeout=self.timeout_seconds,
@@ -72,8 +74,8 @@ class LocalLlmClient:
     def chat_text(self, messages: list[dict[str, str]], combat_mode: bool = False) -> str:
         options = {
             "temperature": 0.35 if not combat_mode else 0.1,
-            "num_ctx": 2048,
-            "num_predict": 32 if combat_mode else 120,
+            "num_ctx": 1024,
+            "num_predict": 24 if combat_mode else 80,
         }
         response = requests.post(
             f"{self.base_url}/api/chat",
