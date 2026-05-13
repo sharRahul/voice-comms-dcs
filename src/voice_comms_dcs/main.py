@@ -31,6 +31,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-ollama", action="store_true")
     parser.add_argument("--skip-whisper", action="store_true")
     parser.add_argument("--skip-piper", action="store_true")
+    parser.add_argument("--benchmark", action="store_true", help="Run local runtime benchmark probes.")
+    parser.add_argument("--benchmark-samples", type=int, default=20)
+    parser.add_argument("--benchmark-output", default="build_output/runtime_benchmark.json")
+    parser.add_argument("--generate-manifest", action="store_true", help="Generate release checksum manifest.")
+    parser.add_argument("--verify-manifest", action="store_true", help="Verify an existing release checksum manifest.")
+    parser.add_argument("--manifest-output", default="build_output/release_manifest.json")
+    parser.add_argument("--manifest-root", default=".")
     return parser
 
 
@@ -83,6 +90,34 @@ def main(argv: list[str] | None = None) -> int:
                 include_piper=not args.skip_piper,
             )
         )
+        return 0
+
+    if args.benchmark:
+        from .runtime_benchmark import RuntimeBenchmark, write_report
+        import json
+        from dataclasses import asdict
+
+        report = RuntimeBenchmark(samples=args.benchmark_samples).run()
+        write_report(report, Path(args.benchmark_output))
+        print(json.dumps(asdict(report), indent=2))
+        return 0
+
+    if args.generate_manifest or args.verify_manifest:
+        from .release_manifest import build_manifest, default_release_paths, verify_manifest, write_manifest
+
+        root = Path(args.manifest_root).resolve()
+        output = Path(args.manifest_output)
+        if args.verify_manifest:
+            ok, failures = verify_manifest(output, root)
+            if failures:
+                for failure in failures:
+                    print(failure)
+            else:
+                print(f"Manifest verified: {output}")
+            return 0 if ok else 1
+        manifest = build_manifest(default_release_paths(root), root=root)
+        write_manifest(manifest, output)
+        print(f"Wrote {output}")
         return 0
 
     config_path = Path(args.config)
