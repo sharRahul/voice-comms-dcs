@@ -6,11 +6,11 @@
   <title>Nimbus Cockpit Dashboard</title>
   <link rel="stylesheet" href="/web_ui/style.css" />
 </head>
-<body>
+<body data-skin="default">
   <main class="shell">
     <section class="hero glass">
       <div>
-        <p class="eyebrow">Voice-Comms-DCS Phase 4</p>
+        <p class="eyebrow">Voice-Comms-DCS Nimbus</p>
         <h1 data-i18n="dashboard.title">Nimbus Cockpit Dashboard</h1>
         <p class="muted" data-i18n="dashboard.subtitle">Local WebRTC, HOTAS PTT, Whisper.cpp STT, telemetry, and radio voice monitoring.</p>
       </div>
@@ -58,14 +58,33 @@
         </div>
       </article>
 
-      <article class="glass panel">
+      <article class="glass panel control-panel">
         <h2 data-i18n="section.personality">AI Personality</h2>
         <label class="select-label" for="personalitySelect" data-i18n="label.personality">Response Style</label>
         <select id="personalitySelect">
           <option value="professional" data-i18n="personality.professional">Professional / Tactical</option>
           <option value="conversational" data-i18n="personality.conversational">Conversational Wingman</option>
+          <option value="instructor">Instructor Pilot</option>
+          <option value="rio">RIO / WSO</option>
         </select>
-        <p class="muted small">Phase 4 language selection is wired. Personality backend wiring remains a later milestone.</p>
+
+        <label class="select-label" for="skinSelect">Aircraft Skin</label>
+        <select id="skinSelect">
+          <option value="default">Nimbus Default</option>
+          <option value="f16">F-16 Viper</option>
+          <option value="f18">F/A-18 Hornet</option>
+          <option value="f15">F-15 Eagle</option>
+          <option value="su27">Su-27 Flanker</option>
+          <option value="mig29">MiG-29 Fulcrum</option>
+          <option value="su57">Su-57 Felon</option>
+          <option value="f22">F-22 Raptor</option>
+        </select>
+
+        <label class="select-label" for="joystickPresetSelect">Joystick / HOTAS Preset</label>
+        <select id="joystickPresetSelect">
+          <option value="">Manual / current settings</option>
+        </select>
+        <p id="joystickPresetHint" class="muted small">Preset selection updates the runtime PTT binding without restarting Nimbus.</p>
       </article>
 
       <article class="glass panel span-2">
