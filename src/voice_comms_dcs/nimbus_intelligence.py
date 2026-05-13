@@ -109,7 +109,11 @@ class NimbusIntelligence:
     ) -> None:
         self.config = config
         self.context_manager = context_manager or ContextManager()
-        self.llm = llm or LocalLlmClient()
+        self.llm = llm or LocalLlmClient(
+            base_url=config.llm.base_url,
+            model=config.llm.model,
+            timeout_seconds=config.llm.timeout_seconds,
+        )
         self.enable_llm = enable_llm
         self.command_service = VoiceCommsService(config)
 
