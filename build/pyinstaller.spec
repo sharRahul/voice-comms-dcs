@@ -6,6 +6,7 @@ block_cipher = None
 project_root = Path.cwd()
 
 added_files = [
+    (str(project_root / "config" / "commands.json"), "config"),
     (str(project_root / "config" / "commands.example.json"), "config"),
     (str(project_root / "config" / "aircraft_profiles"), "config/aircraft_profiles"),
     (str(project_root / "config" / "i18n"), "config/i18n"),
@@ -13,6 +14,7 @@ added_files = [
     (str(project_root / "config" / "rwr"), "config/rwr"),
     (str(project_root / "config" / "srs"), "config/srs"),
     (str(project_root / "src" / "voice_comms_dcs" / "web_ui"), "voice_comms_dcs/web_ui"),
+    (str(project_root / "dcs_scripts" / "Export.lua"), "dcs_scripts"),
     (str(project_root / "dcs_scripts" / "VoiceBridge.lua"), "dcs_scripts"),
     (str(project_root / "dcs_scripts" / "dcs_telemetry.lua"), "dcs_scripts"),
     (str(project_root / "dcs_scripts" / "Export.lua.append.example"), "dcs_scripts"),
