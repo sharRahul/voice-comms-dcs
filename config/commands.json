@@ -1,0 +1,106 @@
+{
+  "language": {
+    "selected": "en",
+    "installed": ["en"]
+  },
+  "dcs_host": "127.0.0.1",
+  "dcs_port": 10308,
+  "telemetry": {
+    "host": "127.0.0.1",
+    "port": 10309,
+    "max_age_seconds": 2.0
+  },
+  "webrtc": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "dashboard_path": "/dashboard",
+    "vad": {
+      "engine": "energy",
+      "rms_threshold": 0.012,
+      "hangover_frames": 8
+    }
+  },
+  "llm": {
+    "provider": "ollama",
+    "base_url": "http://127.0.0.1:11434",
+    "model": "qwen2.5:0.5b",
+    "recommended_model": "qwen2.5:1.5b",
+    "high_quality_model": "llama3.2:3b",
+    "timeout_seconds": 3.0
+  },
+  "tts": {
+    "engine": "piper",
+    "piper_exe": "piper",
+    "language": "en",
+    "piper_model": "models/piper/en_US-lessac-low.onnx",
+    "optional_male_model": "models/piper/en_US-ryan-low.onnx",
+    "radio_filter": {
+      "bandpass_low_hz": 300,
+      "bandpass_high_hz": 3000,
+      "static_level": 0.012
+    }
+  },
+  "stt": {
+    "engine": "whisper_cpp",
+    "language": "en",
+    "model_path": "models/whisper/ggml-base.en.bin",
+    "fallback_engine": "vosk",
+    "sample_rate": 16000,
+    "whisper": {
+      "engine": "auto",
+      "cli_exe": "whisper-cli",
+      "threads": 4,
+      "beam_size": 1,
+      "pre_roll_ms": 500,
+      "highpass_hz": 120,
+      "lowpass_hz": 7600
+    },
+    "vosk": {
+      "model_path": "models/vosk-model-small-en-us-0.15",
+      "device": null
+    }
+  },
+  "input": {
+    "keyboard_enabled": true,
+    "joystick_enabled": true,
+    "hotkey": "right_ctrl",
+    "joystick_index": 0,
+    "joystick_button": 1,
+    "poll_hz": 60
+  },
+  "push_to_talk": {
+    "enabled": true,
+    "hotkey": "right_ctrl",
+    "release_grace_ms": 300,
+    "pre_roll_ms": 500
+  },
+  "matching": {
+    "min_confidence": 0.78
+  },
+  "commands": [
+    {
+      "id": "request_tanker",
+      "description": "Ask mission logic to run the tanker request action.",
+      "phrases": ["request tanker", "tanker request", "texaco request rejoin", "send tanker"],
+      "action": {"type": "flag", "flag": 5101, "value": 1}
+    },
+    {
+      "id": "request_bogey_dope",
+      "description": "Ask AWACS or mission logic for an air picture update.",
+      "phrases": ["bogey dope", "request bogey dope", "picture", "request picture"],
+      "action": {"type": "flag", "flag": 5102, "value": 1}
+    },
+    {
+      "id": "gear_down",
+      "description": "Ask mission logic or aircraft-specific adapter to handle gear-down workflow.",
+      "phrases": ["gear down", "lower the gear", "drop gear"],
+      "action": {"type": "flag", "flag": 5110, "value": 1}
+    },
+    {
+      "id": "abort_mission",
+      "description": "Trigger an abort or return-to-base branch in mission logic.",
+      "phrases": ["abort mission", "mission abort", "knock it off", "return to base"],
+      "action": {"type": "flag", "flag": 5199, "value": 1}
+    }
+  ]
+}
