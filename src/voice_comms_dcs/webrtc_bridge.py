@@ -18,6 +18,7 @@ from .aircraft_profiles import AircraftProfile, load_aircraft_profile
 from .api_routes import DashboardEventHub, setup_dashboard_routes
 from .config import load_config
 from .context_manager import ContextManager
+from .dashboard_settings import DashboardSettings
 from .input_manager import (
     InputManager,
     InputManagerConfig,
@@ -26,6 +27,7 @@ from .input_manager import (
     PttEvent,
     PttEventType,
 )
+from .input_profiles import JoystickPreset, resolve_joystick_preset
 from .language_models import WHISPER_MODELS, get_piper_voice, get_whisper_language_code, get_whisper_model_key
 from .nimbus_intelligence import NimbusIntelligence
 from .radio_voice import RadioVoice, RadioVoiceConfig
@@ -122,7 +124,7 @@ class NimbusAudioTrack(AudioStreamTrack):
 
 
 class WebRtcBridge:
-    """Local WebRTC, multilingual STT/TTS, and Nimbus bridge."""
+    """Local WebRTC, multilingual STT/TTS, dashboard settings, and Nimbus bridge."""
 
     def __init__(
         self,
@@ -138,17 +140,25 @@ class WebRtcBridge:
         ptt_hotkey: str = "right_ctrl",
         joystick_index: int = 0,
         joystick_button: int = 1,
+        joystick_profile: str | None = None,
         enable_input_manager: bool = True,
         language: str | None = None,
+        personality: str = "professional",
+        skin: str = "default",
     ) -> None:
         self.config_path = config_path
         self.host = host
         self.port = port
         self.config = load_config(config_path)
         self.current_language = language or self.config.language.selected
+        self.settings = DashboardSettings(personality=personality, skin=skin)
         self.aircraft_profile: AircraftProfile = load_aircraft_profile(aircraft_profile_path)
         self.context_manager = ContextManager(aircraft_profile=self.aircraft_profile.prompt_identity())
-        self.nimbus = NimbusIntelligence(self.config, context_manager=self.context_manager)
+        self.nimbus = NimbusIntelligence(
+            self.config,
+            context_manager=self.context_manager,
+            personality=self.settings.snapshot().personality,
+        )
         self.nimbus.set_language(self.current_language)
         self.radio_voice = self._create_radio_voice(self.current_language)
         self.telemetry = TelemetryListener(
@@ -166,6 +176,11 @@ class WebRtcBridge:
         self.peer_connections: set[RTCPeerConnection] = set()
         self.audio_tracks: set[NimbusAudioTrack] = set()
         self.enable_input_manager = enable_input_manager
+        self.active_joystick_preset: JoystickPreset | None = resolve_joystick_preset(joystick_profile)
+        if self.active_joystick_preset:
+            joystick_index = self.active_joystick_preset.joystick_index
+            joystick_button = self.active_joystick_preset.button_index
+            ptt_hotkey = self.active_joystick_preset.hotkey
         self.input_manager = InputManager(
             InputManagerConfig(
                 joystick_enabled=enable_input_manager,
@@ -191,6 +206,10 @@ class WebRtcBridge:
             ptt_state_provider=self.ptt_state,
             language_provider=lambda: self.current_language,
             language_setter=self.set_language,
+            settings_provider=self.settings.snapshot,
+            personality_setter=self.set_personality,
+            skin_setter=self.set_skin,
+            joystick_preset_setter=self.set_joystick_preset,
         )
         self.app.on_startup.append(self._on_startup)
         self.app.on_cleanup.append(self._on_cleanup)
@@ -232,6 +251,27 @@ class WebRtcBridge:
         self.whisper_model_path = self._resolve_whisper_model_path(language)
         self.whisper = self._create_whisper(language, self.whisper_model_path)
 
+    def set_personality(self, personality: str) -> None:
+        snapshot = self.settings.set_personality(personality)
+        self.nimbus.set_personality(snapshot.personality)
+
+    def set_skin(self, skin: str) -> None:
+        self.settings.set_skin(skin)
+
+    def set_joystick_preset(self, profile_id: str) -> JoystickPreset:
+        preset = resolve_joystick_preset(profile_id)
+        if preset is None:
+            raise ValueError(f"Unknown joystick preset: {profile_id}")
+        was_running = self.enable_input_manager
+        if was_running:
+            self.input_manager.stop()
+        self.active_joystick_preset = preset
+        self.input_manager = InputManager(preset.to_input_config(joystick_enabled=was_running, keyboard_enabled=was_running))
+        if was_running:
+            self.input_manager.subscribe(self._handle_ptt_event_threadsafe)
+            self.input_manager.start()
+        return preset
+
     async def _on_startup(self, _app: web.Application) -> None:
         self._loop = asyncio.get_running_loop()
         self.telemetry.start()
@@ -252,10 +292,30 @@ class WebRtcBridge:
         raise web.HTTPFound("/dashboard")
 
     async def health(self, _request: web.Request) -> web.Response:
-        return web.json_response({"status": "ok", "language": self.current_language, "whisper_model": self.whisper_model_path, "peers": len(self.peer_connections), "aircraft_profile": self.aircraft_profile.id, "telemetry_age_seconds": self.telemetry.latest().age_seconds, "context": self.context_manager.get_context().prompt_prefix, "ptt": self.ptt_state()})
+        return web.json_response(
+            {
+                "status": "ok",
+                "language": self.current_language,
+                "settings": self.settings.snapshot().__dict__,
+                "whisper_model": self.whisper_model_path,
+                "peers": len(self.peer_connections),
+                "aircraft_profile": self.aircraft_profile.id,
+                "telemetry_age_seconds": self.telemetry.latest().age_seconds,
+                "context": self.context_manager.get_context().prompt_prefix,
+                "ptt": self.ptt_state(),
+            }
+        )
 
     def ptt_state(self) -> dict[str, Any]:
-        return {"active": self.audio_buffer.recording, "source": self._ptt_source, "last_transcript": self._last_transcript, "last_stt_latency_seconds": self._last_stt_latency, "language": self.current_language, "whisper_model": self.whisper_model_path}
+        return {
+            "active": self.audio_buffer.recording,
+            "source": self._ptt_source,
+            "last_transcript": self._last_transcript,
+            "last_stt_latency_seconds": self._last_stt_latency,
+            "language": self.current_language,
+            "whisper_model": self.whisper_model_path,
+            "joystick_preset": self.active_joystick_preset.id if self.active_joystick_preset else None,
+        }
 
     def _handle_ptt_event_threadsafe(self, event: PttEvent) -> None:
         if self._loop is not None:
@@ -284,7 +344,17 @@ class WebRtcBridge:
         self._last_stt_latency = result.duration_seconds
         transcript = result.text.strip()
         self._last_transcript = transcript
-        await self.dashboard_events.broadcast({"type": "transcript", "speaker": "pilot", "text": transcript, "language": result.language, "stt_latency_seconds": result.duration_seconds, "audio_seconds": result.audio_seconds, "total_elapsed_seconds": time.perf_counter() - started})
+        await self.dashboard_events.broadcast(
+            {
+                "type": "transcript",
+                "speaker": "pilot",
+                "text": transcript,
+                "language": result.language,
+                "stt_latency_seconds": result.duration_seconds,
+                "audio_seconds": result.audio_seconds,
+                "total_elapsed_seconds": time.perf_counter() - started,
+            }
+        )
         if transcript:
             await self._process_transcript(transcript, None)
 
@@ -332,6 +402,12 @@ class WebRtcBridge:
                 elif message_type == "language":
                     self.set_language(str(payload.get("language", "en")))
                     await ws.send_json({"type": "language", "language": self.current_language})
+                elif message_type == "settings":
+                    if "personality" in payload:
+                        self.set_personality(str(payload["personality"]))
+                    if "skin" in payload:
+                        self.set_skin(str(payload["skin"]))
+                    await ws.send_json({"type": "settings", **self.settings.snapshot().__dict__})
                 elif message_type == "ping":
                     await ws.send_json({"type": "pong", "time": time.time()})
         finally:
@@ -347,7 +423,18 @@ class WebRtcBridge:
         started = time.perf_counter()
         decision, _dispatch = self.nimbus.handle_pilot_text(text)
         response = decision.response_text
-        await self.dashboard_events.broadcast({"type": "conversation", "pilot": text, "nimbus": response, "language": self.current_language, "intent": decision.intent.value, "command_id": decision.command_id, "elapsed_seconds": time.perf_counter() - started})
+        await self.dashboard_events.broadcast(
+            {
+                "type": "conversation",
+                "pilot": text,
+                "nimbus": response,
+                "language": self.current_language,
+                "settings": self.settings.snapshot().__dict__,
+                "intent": decision.intent.value,
+                "command_id": decision.command_id,
+                "elapsed_seconds": time.perf_counter() - started,
+            }
+        )
         if reply is not None:
             maybe_reply = reply(response)
             if asyncio.iscoroutine(maybe_reply):
@@ -405,7 +492,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ptt-hotkey", default="right_ctrl")
     parser.add_argument("--joystick-index", type=int, default=0)
     parser.add_argument("--joystick-button", type=int, default=1)
+    parser.add_argument("--joystick-profile")
     parser.add_argument("--language", choices=["en", "zh", "ko", "fr", "ru", "es"])
+    parser.add_argument("--personality", default="professional", choices=["professional", "conversational", "instructor", "rio"])
+    parser.add_argument("--skin", default="default", choices=["default", "f16", "f18", "f15", "su27", "mig29", "su57", "f22"])
     parser.add_argument("--disable-input-manager", action="store_true")
     args = parser.parse_args(argv)
 
@@ -422,8 +512,11 @@ def main(argv: list[str] | None = None) -> int:
         ptt_hotkey=args.ptt_hotkey,
         joystick_index=args.joystick_index,
         joystick_button=args.joystick_button,
+        joystick_profile=args.joystick_profile,
         enable_input_manager=not args.disable_input_manager,
         language=args.language,
+        personality=args.personality,
+        skin=args.skin,
     )
     bridge.run()
     return 0
