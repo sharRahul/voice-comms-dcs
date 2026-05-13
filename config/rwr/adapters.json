@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "generic",
+      "label": "Generic NATO/Russian RWR symbols",
+      "aircraft": [],
+      "mappings": {
+        "29": {"label": "MiG-29 Fulcrum", "threat_type": "fighter", "severity": "track"},
+        "27": {"label": "Su-27 Flanker", "threat_type": "fighter", "severity": "track"},
+        "30": {"label": "Su-30 Flanker", "threat_type": "fighter", "severity": "track"},
+        "33": {"label": "Su-33 Flanker-D", "threat_type": "fighter", "severity": "track"},
+        "50": {"label": "A-50 AWACS", "threat_type": "awacs", "severity": "search"},
+        "E3": {"label": "E-3 AWACS", "threat_type": "awacs", "severity": "search"},
+        "S6": {"label": "SA-6 Gainful", "threat_type": "sam", "severity": "spike"},
+        "S8": {"label": "SA-8 Gecko", "threat_type": "sam", "severity": "spike"},
+        "10": {"label": "SA-10 Grumble", "threat_type": "sam", "severity": "spike"},
+        "11": {"label": "SA-11 Gadfly", "threat_type": "sam", "severity": "spike"},
+        "15": {"label": "SA-15 Tor", "threat_type": "sam", "severity": "spike"},
+        "M": {"label": "Missile launch", "threat_type": "missile", "severity": "missile"}
+      }
+    },
+    {
+      "id": "f16",
+      "label": "F-16 ALR-56M style",
+      "aircraft": ["f-16c", "f-16c_50", "f16"],
+      "mappings": {
+        "29": {"label": "MiG-29", "threat_type": "fighter", "severity": "track"},
+        "27": {"label": "Su-27", "threat_type": "fighter", "severity": "track"},
+        "S6": {"label": "SA-6", "threat_type": "sam", "severity": "spike"},
+        "10": {"label": "SA-10", "threat_type": "sam", "severity": "spike"},
+        "M": {"label": "Missile launch", "threat_type": "missile", "severity": "missile"}
+      }
+    },
+    {
+      "id": "f18",
+      "label": "F/A-18 ALR-67 style",
+      "aircraft": ["fa-18c", "f/a-18c", "f-18", "f18"],
+      "mappings": {
+        "29": {"label": "MiG-29", "threat_type": "fighter", "severity": "track"},
+        "27": {"label": "Su-27", "threat_type": "fighter", "severity": "track"},
+        "S6": {"label": "SA-6", "threat_type": "sam", "severity": "spike"},
+        "11": {"label": "SA-11", "threat_type": "sam", "severity": "spike"},
+        "M": {"label": "Missile launch", "threat_type": "missile", "severity": "missile"}
+      }
+    },
+    {
+      "id": "f15",
+      "label": "F-15 TEWS style",
+      "aircraft": ["f-15c", "f-15e", "f15"],
+      "mappings": {
+        "29": {"label": "MiG-29", "threat_type": "fighter", "severity": "track"},
+        "27": {"label": "Su-27", "threat_type": "fighter", "severity": "track"},
+        "S6": {"label": "SA-6", "threat_type": "sam", "severity": "spike"},
+        "10": {"label": "SA-10", "threat_type": "sam", "severity": "spike"},
+        "M": {"label": "Missile launch", "threat_type": "missile", "severity": "missile"}
+      }
+    },
+    {
+      "id": "flanker",
+      "label": "Russian SPO/RWR style",
+      "aircraft": ["su-27", "su-33", "mig-29", "su-57", "su57", "mig29"],
+      "mappings": {
+        "F16": {"label": "F-16", "threat_type": "fighter", "severity": "track"},
+        "F18": {"label": "F/A-18", "threat_type": "fighter", "severity": "track"},
+        "F15": {"label": "F-15", "threat_type": "fighter", "severity": "track"},
+        "E3": {"label": "E-3 AWACS", "threat_type": "awacs", "severity": "search"},
+        "PT": {"label": "Patriot", "threat_type": "sam", "severity": "spike"},
+        "HAWK": {"label": "Hawk", "threat_type": "sam", "severity": "spike"},
+        "M": {"label": "Missile launch", "threat_type": "missile", "severity": "missile"}
+      }
+    },
+    {
+      "id": "f22",
+      "label": "F-22/Fifth-gen simplified threat display",
+      "aircraft": ["f-22", "f22"],
+      "mappings": {
+        "AIR": {"label": "Airborne threat", "threat_type": "fighter", "severity": "track"},
+        "SAM": {"label": "Surface threat", "threat_type": "sam", "severity": "spike"},
+        "M": {"label": "Missile launch", "threat_type": "missile", "severity": "missile"}
+      }
+    }
+  ]
+}
