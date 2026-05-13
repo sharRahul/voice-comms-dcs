@@ -1,0 +1,20 @@
+{
+  "enabled": false,
+  "external_audio_exe": "C:/Program Files/DCS-SimpleRadio-Standalone/DCS-SR-ExternalAudio.exe",
+  "output_dir": "build_output/srs_external_audio",
+  "frequency_mhz": 251.0,
+  "modulation": "AM",
+  "coalition": "blue",
+  "command_template": [
+    "{exe}",
+    "--file",
+    "{file}",
+    "--freq",
+    "{frequency_mhz}",
+    "--modulation",
+    "{modulation}",
+    "--coalition",
+    "{coalition}"
+  ],
+  "notes": "Disabled by default. Configure command_template to match your installed SRS ExternalAudio helper version. The adapter uses explicit argv tokens and never shells through cmd.exe."
+}
