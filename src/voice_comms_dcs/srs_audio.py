@@ -7,7 +7,6 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from string import Template
 from typing import Any
 
 
@@ -46,6 +45,11 @@ DEFAULT_COMMAND_TEMPLATE = [
 ]
 
 
+class SafeFormatDict(dict[str, str]):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
 class SrsExternalAudioAdapter:
     """Safe local adapter for SRS ExternalAudio-style transmission.
 
@@ -60,15 +64,16 @@ class SrsExternalAudioAdapter:
     @classmethod
     def from_json(cls, path: str | Path) -> "SrsExternalAudioAdapter":
         file_path = Path(path)
+        defaults = SrsAudioConfig()
         data = json.loads(file_path.read_text(encoding="utf-8")) if file_path.exists() else {}
         return cls(
             SrsAudioConfig(
-                enabled=bool(data.get("enabled", False)),
-                external_audio_exe=str(data.get("external_audio_exe", SrsAudioConfig.external_audio_exe)),
-                output_dir=str(data.get("output_dir", SrsAudioConfig.output_dir)),
-                frequency_mhz=float(data.get("frequency_mhz", 251.0)),
-                modulation=str(data.get("modulation", "AM")).upper(),
-                coalition=str(data.get("coalition", "blue")).lower(),
+                enabled=bool(data.get("enabled", defaults.enabled)),
+                external_audio_exe=str(data.get("external_audio_exe", defaults.external_audio_exe)),
+                output_dir=str(data.get("output_dir", defaults.output_dir)),
+                frequency_mhz=float(data.get("frequency_mhz", defaults.frequency_mhz)),
+                modulation=str(data.get("modulation", defaults.modulation)).upper(),
+                coalition=str(data.get("coalition", defaults.coalition)).lower(),
                 command_template=list(data.get("command_template", DEFAULT_COMMAND_TEMPLATE)),
             )
         )
@@ -114,15 +119,15 @@ class SrsExternalAudioAdapter:
         )
 
     def _build_command(self, audio_file: Path) -> list[str]:
-        mapping = {
-            "exe": self.config.external_audio_exe,
-            "file": str(audio_file),
-            "frequency_mhz": f"{self.config.frequency_mhz:.3f}",
-            "modulation": self.config.modulation,
-            "coalition": self.config.coalition,
-        }
+        mapping = SafeFormatDict(
+            exe=self.config.external_audio_exe,
+            file=str(audio_file),
+            frequency_mhz=f"{self.config.frequency_mhz:.3f}",
+            modulation=self.config.modulation,
+            coalition=self.config.coalition,
+        )
         template = self.config.command_template or DEFAULT_COMMAND_TEMPLATE
-        return [Template(token.replace("{", "${")).safe_substitute(mapping) for token in template]
+        return [str(token).format_map(mapping) for token in template]
 
 
 def load_default_adapter(path: str | Path = "config/srs/srs_audio.json") -> SrsExternalAudioAdapter:
