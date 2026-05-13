@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nimbus Cockpit Dashboard</title>
+  <link rel="stylesheet" href="/web_ui/style.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero glass">
+      <div>
+        <p class="eyebrow">Voice-Comms-DCS Phase 3</p>
+        <h1>Nimbus Cockpit Dashboard</h1>
+        <p class="muted">Local WebRTC, HOTAS PTT, Whisper.cpp STT, telemetry, and radio voice monitoring.</p>
+      </div>
+      <div class="status-stack">
+        <span id="connectionStatus" class="pill warn">Dashboard connecting</span>
+        <span id="pttStatus" class="pill">PTT idle</span>
+        <span id="modeStatus" class="pill">Mode unknown</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="glass panel span-2">
+        <div class="panel-header">
+          <h2>Conversation Terminal</h2>
+          <div class="button-row">
+            <button id="connectBtn">Connect WebRTC</button>
+            <button id="pttStartBtn">PTT Start</button>
+            <button id="pttStopBtn">PTT Stop</button>
+          </div>
+        </div>
+        <div id="terminal" class="terminal"></div>
+        <form id="manualForm" class="manual-form">
+          <input id="manualText" type="text" placeholder="Type a test transcript, e.g. request tanker" autocomplete="off" />
+          <button type="submit">Send</button>
+        </form>
+        <audio id="remoteAudio" autoplay controls></audio>
+      </article>
+
+      <article class="glass panel">
+        <h2>Telemetry Gauges</h2>
+        <div class="gauges">
+          <div class="gauge"><span>Fuel</span><strong id="fuelGauge">--</strong><em>kg</em></div>
+          <div class="gauge"><span>Altitude</span><strong id="altGauge">--</strong><em>ft</em></div>
+          <div class="gauge"><span>Airspeed</span><strong id="speedGauge">--</strong><em>kt</em></div>
+          <div class="gauge"><span>G Load</span><strong id="gGauge">--</strong><em>g</em></div>
+        </div>
+      </article>
+
+      <article class="glass panel">
+        <h2>AI Personality</h2>
+        <label class="select-label" for="personalitySelect">Response Style</label>
+        <select id="personalitySelect">
+          <option value="professional">Professional / Tactical</option>
+          <option value="conversational">Conversational Wingman</option>
+        </select>
+        <p class="muted small">Phase 3 UI toggle is local-state only. Back-end personality wiring is planned for the next pass.</p>
+      </article>
+
+      <article class="glass panel span-2">
+        <h2>Context Window</h2>
+        <pre id="contextBox" class="context-box">Waiting for telemetry...</pre>
+      </article>
+    </section>
+  </main>
+  <script src="/web_ui/app.js"></script>
+</body>
+</html>
