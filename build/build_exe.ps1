@@ -1,19 +1,30 @@
 param(
-    [string]$SpecPath = "build\pyinstaller.spec"
+    [string]$SpecPath = "build\pyinstaller.spec",
+    [string]$RequirementsPath = "requirements.txt",
+    [switch]$SkipDependencyInstall
 )
 
 $ErrorActionPreference = "Stop"
 
 Write-Host "== Voice-Comms-DCS build =="
 Write-Host "Using spec: $SpecPath"
+Write-Host "Using requirements: $RequirementsPath"
 
 if (-not (Test-Path $SpecPath)) {
     throw "PyInstaller spec not found: $SpecPath"
 }
 
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -e .
+if (-not $SkipDependencyInstall) {
+    if (-not (Test-Path $RequirementsPath)) {
+        throw "Requirements file not found: $RequirementsPath"
+    }
+    python -m pip install --upgrade pip
+    python -m pip install -r $RequirementsPath
+    python -m pip install -e . --no-deps
+}
+else {
+    Write-Host "Skipping dependency installation because -SkipDependencyInstall was provided."
+}
 
 if (Test-Path "dist") {
     Remove-Item -Recurse -Force "dist"
