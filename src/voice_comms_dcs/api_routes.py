@@ -8,7 +8,14 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
-from .dashboard_settings import VALID_PERSONALITIES, VALID_SKINS
+from .dashboard_security import (
+    DashboardSecurity,
+    DashboardValidationError,
+    read_json_object,
+    safe_error_event,
+    validate_language_payload,
+    validate_settings_payload,
+)
 from .input_profiles import presets_as_api_payload
 from .language_models import SUPPORTED_LANGUAGES
 
@@ -52,10 +59,16 @@ def setup_dashboard_routes(
     personality_setter: Any | None = None,
     skin_setter: Any | None = None,
     joystick_preset_setter: Any | None = None,
+    security: DashboardSecurity | None = None,
 ) -> None:
-    """Attach local-only dashboard routes to the aiohttp app."""
+    """Attach local dashboard routes to the aiohttp app."""
 
-    async def dashboard(_request: web.Request) -> web.Response:
+    def require_auth(request: web.Request, *, check_origin: bool = False) -> None:
+        if security is not None:
+            security.require_request(request, check_origin=check_origin)
+
+    async def dashboard(request: web.Request) -> web.Response:
+        require_auth(request)
         html = _read_web_asset("index.html")
         return web.Response(text=html, content_type="text/html")
 
@@ -79,53 +92,58 @@ def setup_dashboard_routes(
             language = "en"
         return web.json_response(_read_i18n(language), dumps=lambda data: json.dumps(data, ensure_ascii=False))
 
-    async def status(_request: web.Request) -> web.Response:
+    async def status(request: web.Request) -> web.Response:
+        require_auth(request)
         return web.json_response(
             _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider, settings_provider),
             dumps=lambda data: json.dumps(data, ensure_ascii=False),
         )
 
     async def set_language(request: web.Request) -> web.Response:
-        payload = await request.json()
-        language = str(payload.get("language", "en")).lower()
-        if language not in SUPPORTED_LANGUAGES:
-            raise web.HTTPBadRequest(reason=f"Unsupported language: {language}")
+        require_auth(request, check_origin=True)
+        try:
+            payload = await read_json_object(request)
+            language = validate_language_payload(payload)
+        except DashboardValidationError as exc:
+            raise web.HTTPBadRequest(reason=exc.safe_message) from exc
         if callable(language_setter):
             language_setter(language)
         await event_hub.broadcast({"type": "language", "language": language})
         return web.json_response({"language": language})
 
     async def set_settings(request: web.Request) -> web.Response:
-        payload = await request.json()
-        changed: dict[str, Any] = {}
-        if "personality" in payload:
-            personality = str(payload["personality"]).lower()
-            if personality not in VALID_PERSONALITIES:
-                raise web.HTTPBadRequest(reason=f"Unsupported personality: {personality}")
-            if callable(personality_setter):
-                personality_setter(personality)
-            changed["personality"] = personality
-        if "skin" in payload:
-            skin = str(payload["skin"]).lower()
-            if skin not in VALID_SKINS:
-                raise web.HTTPBadRequest(reason=f"Unsupported skin: {skin}")
-            if callable(skin_setter):
-                skin_setter(skin)
-            changed["skin"] = skin
+        require_auth(request, check_origin=True)
+        try:
+            payload = await read_json_object(request)
+            changed = validate_settings_payload(payload)
+        except DashboardValidationError as exc:
+            raise web.HTTPBadRequest(reason=exc.safe_message) from exc
+        if "personality" in changed and callable(personality_setter):
+            personality_setter(changed["personality"])
+        if "skin" in changed and callable(skin_setter):
+            skin_setter(changed["skin"])
         await event_hub.broadcast({"type": "settings", **changed})
         return web.json_response(changed, dumps=lambda data: json.dumps(data, ensure_ascii=False))
 
-    async def joystick_presets(_request: web.Request) -> web.Response:
+    async def joystick_presets(request: web.Request) -> web.Response:
+        require_auth(request)
         return web.json_response(presets_as_api_payload(), dumps=lambda data: json.dumps(data, ensure_ascii=False))
 
     async def set_joystick_preset(request: web.Request) -> web.Response:
-        payload = await request.json()
-        profile_id = str(payload.get("profile_id", ""))
+        require_auth(request, check_origin=True)
+        try:
+            payload = await read_json_object(request)
+        except DashboardValidationError as exc:
+            raise web.HTTPBadRequest(reason=exc.safe_message) from exc
+        profile_id = str(payload.get("profile_id", "")).strip()
         if not profile_id:
             raise web.HTTPBadRequest(reason="profile_id is required")
         if not callable(joystick_preset_setter):
             raise web.HTTPServiceUnavailable(reason="joystick preset setter is not available")
-        preset = joystick_preset_setter(profile_id)
+        try:
+            preset = joystick_preset_setter(profile_id)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(reason="Unsupported joystick preset") from exc
         response = {
             "profile_id": preset.id,
             "label": preset.label,
@@ -137,6 +155,7 @@ def setup_dashboard_routes(
         return web.json_response(response, dumps=lambda data: json.dumps(data, ensure_ascii=False))
 
     async def live_ws(request: web.Request) -> web.WebSocketResponse:
+        require_auth(request, check_origin=True)
         ws = web.WebSocketResponse(heartbeat=15.0)
         await ws.prepare(request)
         await event_hub.connect(ws)
@@ -185,7 +204,7 @@ def _snapshot(
     latest = telemetry_listener.latest()
     context = context_manager.get_context()
     ptt_state = ptt_state_provider() if callable(ptt_state_provider) else {}
-    telemetry = latest.data or {}
+    telemetry = context.telemetry or latest.data or {}
     language = language_provider() if callable(language_provider) else "en"
     settings = settings_provider() if callable(settings_provider) else {"personality": "professional", "skin": "default"}
     if hasattr(settings, "__dict__"):
