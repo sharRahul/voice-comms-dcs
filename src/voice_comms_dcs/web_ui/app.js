@@ -25,6 +25,44 @@ let peerConnection;
 let dataChannel;
 let activeLanguage = localStorage.getItem('vcdcs-language') || 'en';
 let translations = {};
+let dashboardToken = sessionStorage.getItem('vcdcs-dashboard-token') || '';
+
+function initializeDashboardToken() {
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token');
+  if (token) {
+    dashboardToken = token;
+    sessionStorage.setItem('vcdcs-dashboard-token', token);
+    params.delete('token');
+    const query = params.toString();
+    history.replaceState({}, document.title, `${location.pathname}${query ? `?${query}` : ''}${location.hash}`);
+  }
+}
+
+function authHeaders(extra = {}) {
+  const headers = { ...extra };
+  if (dashboardToken) headers['X-Voice-Comms-DCS-Token'] = dashboardToken;
+  return headers;
+}
+
+async function dashboardFetch(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: authHeaders(options.headers || {})
+  });
+  if (response.status === 401 || response.status === 403) {
+    logLine('error', 'AUTH', 'Dashboard authorization failed. Reopen the startup dashboard URL.');
+    throw new Error('Dashboard authorization failed');
+  }
+  return response;
+}
+
+function dashboardWebSocketUrl(path) {
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+  const url = new URL(`${protocol}://${location.host}${path}`);
+  if (dashboardToken) url.searchParams.set('token', dashboardToken);
+  return url.toString();
+}
 
 function logLine(kind, speaker, text) {
   const line = document.createElement('div');
@@ -48,7 +86,7 @@ async function loadLanguage(language, notifyBackend = true) {
   activeLanguage = language;
   localStorage.setItem('vcdcs-language', language);
   languageSelect.value = language;
-  const response = await fetch(`/api/i18n/${language}`);
+  const response = await dashboardFetch(`/api/i18n/${language}`);
   translations = await response.json();
   document.documentElement.lang = language;
   document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -58,7 +96,7 @@ async function loadLanguage(language, notifyBackend = true) {
     el.placeholder = t(el.dataset.i18nPlaceholder, el.placeholder);
   });
   if (!notifyBackend) return;
-  await fetch('/api/language', {
+  await dashboardFetch('/api/language', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ language })
@@ -92,7 +130,7 @@ function applySettings(settings = {}) {
 
 async function postSettings(settings) {
   applySettings(settings);
-  await fetch('/api/settings', {
+  await dashboardFetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings)
@@ -104,7 +142,7 @@ async function postSettings(settings) {
 
 async function loadJoystickPresets() {
   try {
-    const response = await fetch('/api/joystick-presets');
+    const response = await dashboardFetch('/api/joystick-presets');
     const payload = await response.json();
     for (const preset of payload.presets || []) {
       const option = document.createElement('option');
@@ -123,7 +161,7 @@ async function applyJoystickPreset(profileId) {
   const option = joystickPresetSelect.selectedOptions[0];
   if (option?.dataset.hint) joystickPresetHint.textContent = option.dataset.hint;
   try {
-    const response = await fetch('/api/joystick-preset', {
+    const response = await dashboardFetch('/api/joystick-preset', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ profile_id: profileId })
@@ -163,8 +201,7 @@ function updateStatus(payload) {
 }
 
 function connectLiveSocket() {
-  const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/live`;
-  liveSocket = new WebSocket(url);
+  liveSocket = new WebSocket(dashboardWebSocketUrl('/api/live'));
   liveSocket.onopen = () => logLine('system', 'SYSTEM', 'Dashboard live socket connected');
   liveSocket.onclose = () => {
     logLine('system', 'SYSTEM', 'Dashboard live socket disconnected; retrying...');
@@ -192,7 +229,7 @@ function connectLiveSocket() {
 
 async function connectWebRtc() {
   if (peerConnection) return;
-  signalSocket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  signalSocket = new WebSocket(dashboardWebSocketUrl('/ws'));
   await new Promise((resolve, reject) => {
     signalSocket.onopen = resolve;
     signalSocket.onerror = reject;
@@ -258,6 +295,7 @@ personalitySelect?.addEventListener('change', () => postSettings({ personality: 
 skinSelect?.addEventListener('change', () => postSettings({ skin: skinSelect.value }));
 joystickPresetSelect?.addEventListener('change', () => applyJoystickPreset(joystickPresetSelect.value));
 
+initializeDashboardToken();
 applySettings({ skin: localStorage.getItem('vcdcs-skin') || 'default' });
 loadJoystickPresets();
 loadLanguage(activeLanguage).then(connectLiveSocket).catch(() => connectLiveSocket());

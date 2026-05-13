@@ -96,11 +96,13 @@ voice-comms-dcs-webrtc `
   --ptt-hotkey right_ctrl
 ```
 
-Open:
+The bridge prints a local dashboard URL at startup. Open that exact URL:
 
 ```text
-http://127.0.0.1:8765/dashboard
+Dashboard: http://127.0.0.1:8765/dashboard?token=<startup-token>
 ```
+
+Dashboard, API, WebSocket, and WebRTC control routes require this token by default. The browser stores it in session storage and removes it from the visible URL after loading the dashboard. You can supply a stable token for a local session with `--dashboard-token`, but do not store real tokens in config files.
 
 The dashboard provides:
 
@@ -266,7 +268,9 @@ The Inno Setup installer includes language model checkboxes and can run the Lua 
 
 ## Security posture
 
-Voice-Comms-DCS is local-first by default. Keep the dashboard/WebRTC bridge bound to `127.0.0.1` unless you add authentication and firewall controls. Do not expose `/ws`, `/api/live`, or `/api/language` to the public internet.
+Voice-Comms-DCS is local-first by default. The dashboard/WebRTC bridge binds to `127.0.0.1`, generates a startup token, and accepts browser origins only from `localhost` or `127.0.0.1` on the configured port unless extra origins are supplied with `--allowed-origin`.
+
+LAN binding is refused unless `--allow-lan` is passed, and dashboard authentication must remain enabled for LAN/non-local hosts. `--disable-dashboard-auth` is intended only for local development on localhost. Do not expose `/dashboard`, `/ws`, `/api/live`, or dashboard API routes to the public internet.
 
 ## Roadmap
 

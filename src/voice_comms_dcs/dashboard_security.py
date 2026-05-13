@@ -75,7 +75,7 @@ class DashboardSecurity:
             return f"{base}?{urlencode({'token': self.token})}"
         return base
 
-    def extract_token(self, request: Any) -> str | None:
+    def extract_token(self, request: Any, *, allow_query: bool = True) -> str | None:
         auth_header = request.headers.get("Authorization", "")
         scheme, _, value = auth_header.partition(" ")
         if scheme.lower() == "bearer" and value:
@@ -85,22 +85,23 @@ class DashboardSecurity:
         if header_token:
             return header_token.strip()
 
-        query_token = request.query.get("token")
-        if query_token:
-            return str(query_token).strip()
+        if allow_query:
+            query_token = request.query.get("token")
+            if query_token:
+                return str(query_token).strip()
 
         return None
 
-    def is_authenticated_request(self, request: Any) -> bool:
+    def is_authenticated_request(self, request: Any, *, allow_query: bool = True) -> bool:
         if not self.auth_enabled:
             return self.is_local_request(request)
-        supplied = self.extract_token(request)
+        supplied = self.extract_token(request, allow_query=allow_query)
         if not supplied or not self.token:
             return False
         return hmac.compare_digest(supplied, self.token)
 
-    def require_auth(self, request: Any) -> None:
-        if not self.is_authenticated_request(request):
+    def require_auth(self, request: Any, *, allow_query: bool = True) -> None:
+        if not self.is_authenticated_request(request, allow_query=allow_query):
             raise web.HTTPUnauthorized(
                 reason="Dashboard authentication required",
                 headers={"WWW-Authenticate": "Bearer"},
@@ -116,10 +117,16 @@ class DashboardSecurity:
         if not self.is_origin_allowed(request):
             raise web.HTTPForbidden(reason="Origin is not allowed")
 
-    def require_request(self, request: Any, *, check_origin: bool = False) -> None:
+    def require_request(
+        self,
+        request: Any,
+        *,
+        check_origin: bool = False,
+        allow_query: bool = True,
+    ) -> None:
         if check_origin:
             self.require_origin(request)
-        self.require_auth(request)
+        self.require_auth(request, allow_query=allow_query)
 
     def is_local_request(self, request: Any) -> bool:
         transport = getattr(request, "transport", None)
@@ -144,7 +151,12 @@ async def read_json_object(request: web.Request, max_bytes: int = MAX_JSON_BYTES
     body = await request.content.read(max_bytes + 1)
     if len(body) > max_bytes:
         raise web.HTTPRequestEntityTooLarge(max_size=max_bytes, actual_size=len(body))
-    return parse_json_object(body.decode("utf-8"), max_chars=max_bytes)
+    try:
+        return parse_json_object(body.decode("utf-8"), max_chars=max_bytes)
+    except UnicodeDecodeError as exc:
+        raise web.HTTPBadRequest(reason="Invalid JSON payload") from exc
+    except DashboardValidationError as exc:
+        raise web.HTTPBadRequest(reason=exc.safe_message) from exc
 
 
 def parse_json_object(raw: str, *, max_chars: int = MAX_JSON_BYTES) -> dict[str, Any]:

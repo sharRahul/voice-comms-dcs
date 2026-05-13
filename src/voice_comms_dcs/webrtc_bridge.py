@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import time
 from fractions import Fraction
 from pathlib import Path
@@ -18,6 +19,13 @@ from .aircraft_profiles import AircraftProfile, load_aircraft_profile
 from .api_routes import DashboardEventHub, setup_dashboard_routes
 from .config import load_config
 from .context_manager import ContextManager
+from .dashboard_security import (
+    DashboardSecurity,
+    DashboardSecurityConfig,
+    DashboardValidationError,
+    safe_error_event,
+    validate_ws_message,
+)
 from .dashboard_settings import DashboardSettings
 from .input_manager import (
     InputManager,
@@ -39,6 +47,7 @@ from .telemetry_listener import TelemetryListener
 AUDIO_SAMPLE_RATE = 48000
 AUDIO_FRAME_SAMPLES = 960
 WHISPER_SAMPLE_RATE = 16000
+logger = logging.getLogger(__name__)
 
 
 class EnergyVad:
@@ -150,11 +159,26 @@ class WebRtcBridge:
         rwr_profile: str | None = None,
         rwr_registry_path: str = "config/rwr/adapters.json",
         srs_config_path: str = "config/srs/srs_audio.json",
+        dashboard_token: str | None = None,
+        dashboard_auth_enabled: bool = True,
+        allow_lan: bool = False,
+        allowed_origins: tuple[str, ...] = (),
     ) -> None:
         self.config_path = config_path
         self.host = host
         self.port = port
+        self.security = DashboardSecurity(
+            DashboardSecurityConfig(
+                host=host,
+                port=port,
+                token=dashboard_token,
+                auth_enabled=dashboard_auth_enabled,
+                allow_lan=allow_lan,
+                allowed_origins=allowed_origins,
+            )
+        )
         self.config = load_config(config_path)
+        self._llm_timeout_seconds = max(float(self.config.llm.timeout_seconds) + 1.0, 1.0)
         self.current_language = language or self.config.language.selected
         self.settings = DashboardSettings(personality=personality, skin=skin)
         self.aircraft_profile: AircraftProfile = load_aircraft_profile(aircraft_profile_path)
@@ -205,6 +229,7 @@ class WebRtcBridge:
         self._last_transcript = ""
         self._last_stt_latency = 0.0
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._llm_semaphore = asyncio.Semaphore(1)
 
         self.app = web.Application()
         self.app.router.add_get("/", self.index)
@@ -222,6 +247,7 @@ class WebRtcBridge:
             personality_setter=self.set_personality,
             skin_setter=self.set_skin,
             joystick_preset_setter=self.set_joystick_preset,
+            security=self.security,
         )
         self.app.on_startup.append(self._on_startup)
         self.app.on_cleanup.append(self._on_cleanup)
@@ -290,6 +316,8 @@ class WebRtcBridge:
 
     async def _on_startup(self, _app: web.Application) -> None:
         self._loop = asyncio.get_running_loop()
+        logger.info("Dashboard: %s", self.security.dashboard_url())
+        print(f"Dashboard: {self.security.dashboard_url()}")
         self.telemetry.start()
         if self.enable_input_manager:
             self.input_manager.subscribe(self._handle_ptt_event_threadsafe)
@@ -305,23 +333,10 @@ class WebRtcBridge:
         self.peer_connections.clear()
 
     async def index(self, _request: web.Request) -> web.Response:
-        raise web.HTTPFound("/dashboard")
+        raise web.HTTPFound(self.security.dashboard_url())
 
     async def health(self, _request: web.Request) -> web.Response:
-        return web.json_response(
-            {
-                "status": "ok",
-                "language": self.current_language,
-                "settings": self.settings.snapshot().__dict__,
-                "whisper_model": self.whisper_model_path,
-                "peers": len(self.peer_connections),
-                "aircraft_profile": self.aircraft_profile.id,
-                "telemetry_age_seconds": self.telemetry.latest().age_seconds,
-                "context": self.context_manager.get_context().prompt_prefix,
-                "ptt": self.ptt_state(),
-                "srs_enabled": self.srs_adapter.config.enabled,
-            }
-        )
+        return web.json_response({"status": "ok"})
 
     def ptt_state(self) -> dict[str, Any]:
         return {
@@ -355,8 +370,11 @@ class WebRtcBridge:
         started = time.perf_counter()
         try:
             result = await asyncio.to_thread(self.whisper.transcribe, utterance, WHISPER_SAMPLE_RATE)
-        except Exception as exc:
-            await self.dashboard_events.broadcast({"type": "error", "message": f"Whisper failed: {exc}"})
+        except Exception:
+            logger.exception("Whisper transcription failed")
+            await self.dashboard_events.broadcast(
+                safe_error_event("STT_FAILED", "Speech recognition failed. Check local Whisper configuration.")
+            )
             return
         self._last_stt_latency = result.duration_seconds
         transcript = result.text.strip()
@@ -376,6 +394,7 @@ class WebRtcBridge:
             await self._process_transcript(transcript, None)
 
     async def websocket(self, request: web.Request) -> web.WebSocketResponse:
+        self.security.require_request(request, check_origin=True)
         ws = web.WebSocketResponse()
         await ws.prepare(request)
 
@@ -395,29 +414,37 @@ class WebRtcBridge:
         def on_datachannel(channel: Any) -> None:
             @channel.on("message")
             def on_message(message: str) -> None:
-                asyncio.create_task(self._process_transcript(str(message), lambda text: channel.send(text)))
+                try:
+                    payload = validate_ws_message(json.dumps({"type": "transcript", "text": str(message)}))
+                except DashboardValidationError:
+                    return
+                asyncio.create_task(self._process_transcript(payload["text"], lambda text: channel.send(text)))
 
         try:
             async for message in ws:
                 if message.type != WSMsgType.TEXT:
                     continue
-                payload = json.loads(message.data)
-                message_type = payload.get("type")
+                try:
+                    payload = validate_ws_message(message.data)
+                except DashboardValidationError as exc:
+                    await ws.send_json(safe_error_event(exc.code, exc.safe_message))
+                    continue
+                message_type = payload["type"]
 
                 if message_type == "offer":
-                    offer = RTCSessionDescription(sdp=payload["sdp"], type=payload["type"])
+                    offer = RTCSessionDescription(sdp=payload["sdp"], type="offer")
                     await pc.setRemoteDescription(offer)
                     answer = await pc.createAnswer()
                     await pc.setLocalDescription(answer)
                     await ws.send_json({"type": pc.localDescription.type, "sdp": pc.localDescription.sdp})
                 elif message_type == "transcript":
-                    await self._process_transcript(str(payload.get("text", "")), lambda text: asyncio.create_task(ws.send_json({"type": "nimbus", "text": text})))
+                    await self._process_transcript(payload["text"], lambda text: asyncio.create_task(ws.send_json({"type": "nimbus", "text": text})))
                 elif message_type == "ptt_start":
                     await self._handle_ptt_event(PttEvent(PttEventType.START_PTT, "dashboard", time.monotonic()))
                 elif message_type == "ptt_stop":
                     await self._handle_ptt_event(PttEvent(PttEventType.STOP_PTT, "dashboard", time.monotonic()))
                 elif message_type == "language":
-                    self.set_language(str(payload.get("language", "en")))
+                    self.set_language(payload["language"])
                     await ws.send_json({"type": "language", "language": self.current_language})
                 elif message_type == "settings":
                     if "personality" in payload:
@@ -438,7 +465,24 @@ class WebRtcBridge:
         if not text:
             return
         started = time.perf_counter()
-        decision, _dispatch = self.nimbus.handle_pilot_text(text)
+        try:
+            async with self._llm_semaphore:
+                decision, _dispatch = await asyncio.wait_for(
+                    asyncio.to_thread(self.nimbus.handle_pilot_text, text),
+                    timeout=self._llm_timeout_seconds,
+                )
+        except TimeoutError:
+            logger.exception("Nimbus transcript handling timed out")
+            await self.dashboard_events.broadcast(
+                safe_error_event("NIMBUS_TIMEOUT", "Nimbus processing timed out. Check local model configuration.")
+            )
+            return
+        except Exception:
+            logger.exception("Nimbus transcript handling failed")
+            await self.dashboard_events.broadcast(
+                safe_error_event("NIMBUS_FAILED", "Nimbus processing failed. Check local model configuration.")
+            )
+            return
         response = decision.response_text
         await self.dashboard_events.broadcast(
             {
@@ -463,17 +507,27 @@ class WebRtcBridge:
             wav = await asyncio.to_thread(self.radio_voice.synthesise_to_temp_wav, response)
             srs_result = await asyncio.to_thread(self.srs_adapter.dispatch_wav, wav, "nimbus")
             if srs_result.enabled:
+                audio_file_name = Path(srs_result.audio_file).name
+                if srs_result.returncode == 0:
+                    srs_message = "SRS external audio command executed."
+                elif srs_result.returncode is None:
+                    srs_message = "SRS external audio is unavailable. Check local SRS configuration."
+                else:
+                    srs_message = "SRS external audio command failed."
                 await self.dashboard_events.broadcast(
                     {
                         "type": "srs_audio",
-                        "audio_file": str(srs_result.audio_file),
+                        "audio_file": audio_file_name,
                         "returncode": srs_result.returncode,
-                        "message": srs_result.message,
+                        "message": srs_message,
                     }
                 )
             await asyncio.gather(*(track.enqueue_wav(wav) for track in list(self.audio_tracks)), return_exceptions=True)
-        except Exception as exc:
-            await self.dashboard_events.broadcast({"type": "error", "message": f"TTS/SRS failed: {exc}"})
+        except Exception:
+            logger.exception("Radio voice or SRS dispatch failed")
+            await self.dashboard_events.broadcast(
+                safe_error_event("TTS_SRS_FAILED", "Radio voice output failed. Check local Piper/SRS configuration.")
+            )
 
     def run(self) -> None:
         web.run_app(self.app, host=self.host, port=self.port)
@@ -527,30 +581,42 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rwr-registry", default="config/rwr/adapters.json")
     parser.add_argument("--srs-config", default="config/srs/srs_audio.json")
     parser.add_argument("--disable-input-manager", action="store_true")
+    parser.add_argument("--dashboard-token", help="Dashboard/API/WebSocket bearer token. Generated at startup when omitted.")
+    parser.add_argument("--disable-dashboard-auth", action="store_true", help="Disable dashboard auth for local development only.")
+    parser.add_argument("--allow-lan", action="store_true", help="Allow binding the dashboard bridge to non-local interfaces.")
+    parser.add_argument("--allowed-origin", action="append", default=[], help="Additional allowed browser Origin. May be repeated.")
     args = parser.parse_args(argv)
 
-    bridge = WebRtcBridge(
-        config_path=args.config,
-        host=args.host,
-        port=args.port,
-        telemetry_host=args.telemetry_host,
-        telemetry_port=args.telemetry_port,
-        aircraft_profile_path=args.aircraft_profile,
-        whisper_model_path=args.whisper_model,
-        whisper_engine=args.whisper_engine,
-        whisper_cli_exe=args.whisper_cli_exe,
-        ptt_hotkey=args.ptt_hotkey,
-        joystick_index=args.joystick_index,
-        joystick_button=args.joystick_button,
-        joystick_profile=args.joystick_profile,
-        enable_input_manager=not args.disable_input_manager,
-        language=args.language,
-        personality=args.personality,
-        skin=args.skin,
-        rwr_profile=args.rwr_profile,
-        rwr_registry_path=args.rwr_registry,
-        srs_config_path=args.srs_config,
-    )
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    try:
+        bridge = WebRtcBridge(
+            config_path=args.config,
+            host=args.host,
+            port=args.port,
+            telemetry_host=args.telemetry_host,
+            telemetry_port=args.telemetry_port,
+            aircraft_profile_path=args.aircraft_profile,
+            whisper_model_path=args.whisper_model,
+            whisper_engine=args.whisper_engine,
+            whisper_cli_exe=args.whisper_cli_exe,
+            ptt_hotkey=args.ptt_hotkey,
+            joystick_index=args.joystick_index,
+            joystick_button=args.joystick_button,
+            joystick_profile=args.joystick_profile,
+            enable_input_manager=not args.disable_input_manager,
+            language=args.language,
+            personality=args.personality,
+            skin=args.skin,
+            rwr_profile=args.rwr_profile,
+            rwr_registry_path=args.rwr_registry,
+            srs_config_path=args.srs_config,
+            dashboard_token=args.dashboard_token,
+            dashboard_auth_enabled=not args.disable_dashboard_auth,
+            allow_lan=args.allow_lan,
+            allowed_origins=tuple(args.allowed_origin),
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     bridge.run()
     return 0
 
