@@ -2,6 +2,7 @@ param(
     [string]$DistDir = "dist\Voice-Comms-DCS",
     [string]$Installer = "build_output\Voice-Comms-DCS-Setup-0.4.0.exe",
     [string]$Manifest = "build_output\release_manifest.json",
+    [string]$ModelManifest = "build_output\model_manifest.json",
     [string]$CertificateThumbprint = $env:VCDCS_SIGN_CERT_THUMBPRINT,
     [string]$TimestampServer = "http://timestamp.digicert.com",
     [switch]$SkipSigning,
@@ -67,5 +68,7 @@ foreach ($target in $targets) {
 
 python -m voice_comms_dcs.release_manifest --output $Manifest
 python -m voice_comms_dcs.release_manifest --output $Manifest --verify
+python -m voice_comms_dcs.model_manifest --output $ModelManifest
+python -m voice_comms_dcs.model_manifest --output $ModelManifest --verify
 
 Write-Host "Release signing/checksum pass complete."
