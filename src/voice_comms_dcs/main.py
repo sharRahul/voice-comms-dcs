@@ -38,7 +38,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--verify-manifest", action="store_true", help="Verify an existing release checksum manifest.")
     parser.add_argument("--manifest-output", default="build_output/release_manifest.json")
     parser.add_argument("--manifest-root", default=".")
+    parser.add_argument("--generate-model-manifest", action="store_true", help="Generate checksum manifest for downloaded AI models.")
+    parser.add_argument("--verify-model-manifest", action="store_true", help="Verify downloaded AI model checksum manifest.")
+    parser.add_argument("--model-manifest-output", default="build_output/model_manifest.json")
+    parser.add_argument("--model-manifest-root", default=".")
     return parser
+
+
+def _write_model_manifest(root: Path, output: Path) -> None:
+    from .model_manifest import build_model_manifest, write_model_manifest
+
+    manifest = build_model_manifest(root=root)
+    write_model_manifest(manifest, output)
+    print(f"Wrote {output}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -90,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
                 include_piper=not args.skip_piper,
             )
         )
+        _write_model_manifest(Path(args.model_manifest_root).resolve(), Path(args.model_manifest_output))
         return 0
 
     if args.benchmark:
@@ -117,6 +130,24 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if ok else 1
         manifest = build_manifest(default_release_paths(root), root=root)
         write_manifest(manifest, output)
+        print(f"Wrote {output}")
+        return 0
+
+    if args.generate_model_manifest or args.verify_model_manifest:
+        from .model_manifest import build_model_manifest, verify_model_manifest, write_model_manifest
+
+        root = Path(args.model_manifest_root).resolve()
+        output = Path(args.model_manifest_output)
+        if args.verify_model_manifest:
+            ok, failures = verify_model_manifest(output, root)
+            if failures:
+                for failure in failures:
+                    print(failure)
+            else:
+                print(f"Model manifest verified: {output}")
+            return 0 if ok else 1
+        manifest = build_model_manifest(root=root)
+        write_model_manifest(manifest, output)
         print(f"Wrote {output}")
         return 0
 
