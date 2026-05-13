@@ -1,28 +1,29 @@
 # Voice-Comms-DCS
 
-Voice-Comms-DCS is a local-first Windows companion app for DCS World. Phase 1 provides a safe voice-command-to-DCS-flag bridge. Phase 2 adds the **Nimbus conversational cockpit**: a WebRTC audio bridge, DCS telemetry ingestion, local AI intent handling, and radio-effect TTS feedback.
-
-The project is designed around a safe and mission-author-controlled bridge:
+Voice-Comms-DCS is a local-first Windows companion app for DCS World. It started as a safe voice-command-to-DCS-flag bridge and now includes **Nimbus**, a telemetry-aware AI wingman stack with WebRTC audio, HOTAS/keyboard push-to-talk, Whisper.cpp STT, local LLM orchestration, radio-effect TTS, and a browser-based glass-cockpit dashboard.
 
 ```mermaid
 flowchart LR
-    A[Microphone / WebRTC] --> B[Local STT / Transcript]
-    B --> C[Nimbus Intent Switchboard]
-    T[DCS Telemetry JSON] --> C
-    C -->|Command| D[UDP Command Packet]
-    D --> E[DCS Lua VoiceBridge]
-    E --> F[trigger.action.setUserFlag]
-    F --> G[Mission Triggers / Custom Logic]
-    C -->|Answer| H[Local TTS]
-    H --> I[Radio DSP]
-    I --> J[Headset / Virtual Audio / SRS path]
+    A[Browser mic / WebRTC] --> B[PTT-gated rolling audio buffer]
+    B --> C[Whisper.cpp local STT]
+    C --> D[Nimbus Intent Switchboard]
+    T[DCS Telemetry JSON UDP 10309] --> D
+    D -->|Command| E[UDP Command Packet 10308]
+    E --> F[DCS Lua VoiceBridge]
+    F --> G[trigger.action.setUserFlag]
+    G --> H[Mission Triggers / Custom Logic]
+    D -->|Answer| I[Local TTS]
+    I --> J[Radio DSP]
+    J --> K[WebRTC audio back to pilot]
+    L[HOTAS / Keyboard PTT] --> B
+    M[Dashboard] --> D
 ```
 
 ## Why this exists
 
-DCS F10 radio menus are powerful but slow to use during high workload flying. This tool provides a configurable voice layer so mission builders can map phrases such as `request tanker`, `bogey dope`, `gear down`, or `abort mission` to deterministic DCS trigger flags.
+DCS F10 radio menus are powerful but slow to use during high workload flying. Voice-Comms-DCS lets mission builders map phrases such as `request tanker`, `bogey dope`, `gear down`, or `abort mission` to deterministic DCS trigger flags.
 
-Phase 2 extends this into a two-way AI wingman/RIO/ATC assistant that can answer telemetry questions such as `what is my fuel?`, keep responses short in combat, and speak back through a cockpit-radio-style voice.
+Nimbus extends this into a two-way AI wingman/RIO/ATC assistant that can answer telemetry questions such as `what is my fuel?`, keep responses short in combat, and speak back through a cockpit-radio-style voice.
 
 ## Important DCS limitation
 
@@ -36,25 +37,20 @@ voice-comms-dcs/
 ├── LICENSE
 ├── requirements.txt
 ├── pyproject.toml
-├── .gitignore
 ├── src/voice_comms_dcs/
-│   ├── __init__.py
-│   ├── __main__.py
-│   ├── main.py
-│   ├── app.py
-│   ├── aircraft_profiles.py
-│   ├── audio.py
-│   ├── config.py
-│   ├── context_manager.py
-│   ├── matcher.py
-│   ├── network.py
+│   ├── api_routes.py
+│   ├── input_manager.py
+│   ├── stt_whisper_engine.py
+│   ├── webrtc_bridge.py
 │   ├── nimbus_intelligence.py
-│   ├── radio_voice.py
-│   ├── stt.py
+│   ├── context_manager.py
 │   ├── telemetry_listener.py
-│   ├── ui.py
-│   ├── webrtc_audio_server.py
-│   └── webrtc_bridge.py
+│   ├── radio_voice.py
+│   ├── web_ui/
+│   │   ├── index.html
+│   │   ├── app.js
+│   │   └── style.css
+│   └── ...
 ├── dcs_scripts/
 │   ├── VoiceBridge.lua
 │   ├── dcs_telemetry.lua
@@ -68,10 +64,13 @@ voice-comms-dcs/
 ├── docs/
 │   ├── architecture.md
 │   ├── phase2_conversational_cockpit.md
+│   ├── phase3_frontend_high_fidelity.md
+│   ├── security_report.md
 │   ├── installer_roadmap.md
 │   └── security_and_limitations.md
 └── build/
     ├── build_exe.ps1
+    ├── setup_whisper.ps1
     ├── pyinstaller.spec
     └── voice-comms-dcs.iss
 ```
@@ -96,9 +95,23 @@ pip install -e .
 copy config\commands.example.json config\commands.json
 ```
 
-Edit `config\commands.json` and map your spoken phrases to DCS user flags.
+Edit `config\commands.json` for your command phrases, HOTAS button, keyboard PTT key, Whisper model path, and local model settings.
 
-### 3. Install the DCS Lua bridge and telemetry exporter
+### 3. Install Whisper.cpp model
+
+Start with `base.en` for the best balance. Use `tiny.en` if you need lower latency.
+
+```powershell
+.\build\setup_whisper.ps1 -Model base.en
+```
+
+This creates:
+
+```text
+models\whisper\ggml-base.en.bin
+```
+
+### 4. Install the DCS Lua bridge and telemetry exporter
 
 Copy these files into:
 
@@ -121,14 +134,11 @@ Then append the content of `dcs_scripts/Export.lua.append.example` to:
 
 If `Export.lua` does not exist, create it first.
 
-### 4. Wire flags inside your mission
+### 5. Wire flags inside your mission
 
 Use Mission Editor triggers or `DO SCRIPT` logic to respond to the flags sent by the app.
 
-Example:
-
 ```lua
--- When flag 5101 becomes 1, run tanker request logic, then reset it.
 if trigger.misc.getUserFlag("5101") == 1 then
     trigger.action.outText("Voice command received: Request Tanker", 10)
     trigger.action.setUserFlag("5101", 0)
@@ -137,53 +147,74 @@ end
 
 A fuller example is provided in `dcs_scripts/mission_trigger_example.lua`.
 
-### 5. Validate Phase 1 command matching without the GUI
+## Phase 3 dashboard workflow
+
+### 1. Identify your HOTAS button
+
+```powershell
+voice-comms-dcs-input --list
+```
+
+Then test a specific button and keyboard key:
+
+```powershell
+voice-comms-dcs-input --joystick-index 0 --button-index 1 --hotkey right_ctrl
+```
+
+The joystick listener uses `pygame.joystick` polling and does not take exclusive control of the device, so DCS should still receive its native input.
+
+### 2. Launch Nimbus WebRTC bridge
+
+```powershell
+voice-comms-dcs-webrtc `
+  --config config\commands.json `
+  --aircraft-profile config\aircraft_profiles\su57.json `
+  --whisper-model models\whisper\ggml-base.en.bin `
+  --joystick-index 0 `
+  --joystick-button 1 `
+  --ptt-hotkey right_ctrl
+```
+
+### 3. Open the dashboard
+
+```text
+http://127.0.0.1:8765/dashboard
+```
+
+Click **Connect WebRTC**, allow microphone access, then use your HOTAS/keyboard PTT. The dashboard shows:
+
+- WebRTC connection state.
+- PTT state.
+- Pilot/Nimbus conversation terminal.
+- STT transcript and latency events.
+- Live fuel, altitude, airspeed, and G-load gauges.
+- Current telemetry context window.
+- Manual transcript testing.
+
+## Useful diagnostics
+
+### Test command matching without audio
 
 ```powershell
 voice-comms-dcs --config config\commands.json --test-phrase "request tanker"
 ```
 
-You can also run the package module directly:
+### Test Nimbus intent handling
 
 ```powershell
-python -m voice_comms_dcs --config config\commands.json --test-phrase "request tanker"
+voice-comms-dcs-nimbus --config config\commands.json --text "what is my fuel" --no-llm
 ```
 
-### 6. Run the Phase 1 desktop app
-
-```powershell
-voice-comms-dcs --config config\commands.json
-```
-
-Use the GUI to start listening. You can also type a phrase into the manual test box to validate command matching before connecting a microphone.
-
-## Phase 2: Nimbus conversational cockpit
-
-### Run the telemetry listener
+### Test telemetry listener
 
 ```powershell
 voice-comms-dcs-telemetry --host 127.0.0.1 --port 10309
 ```
 
-### Run the WebRTC bridge
+### Test Whisper transcription from a WAV file
 
 ```powershell
-voice-comms-dcs-webrtc --config config\commands.json --aircraft-profile config\aircraft_profiles\su57.json
-```
-
-Default local endpoints:
-
-| Service | Port | Protocol |
-|---|---:|---|
-| Command bridge | 10308 | UDP Python -> DCS |
-| Telemetry stream | 10309 | UDP DCS -> Python |
-| WebRTC signaling | 8765 | HTTP/WebSocket local signaling |
-| Ollama local model | 11434 | HTTP local only |
-
-### Test Nimbus intent handling
-
-```powershell
-voice-comms-dcs-nimbus --config config\commands.json --text "what is my fuel" --no-llm
+voice-comms-dcs-whisper --model models\whisper\ggml-base.en.bin --wav samples\test_command.wav
 ```
 
 ### Generate a radio-effect TTS WAV
@@ -192,9 +223,14 @@ voice-comms-dcs-nimbus --config config\commands.json --text "what is my fuel" --
 voice-comms-dcs-radio-voice --text "Two, contact bandit, two o'clock, five miles" --output build_output\nimbus_radio.wav
 ```
 
-## Configuration example
+## Default local endpoints
 
-The Phase 2 example config includes command bridge, telemetry, WebRTC, local LLM, local TTS, VAD, PTT, and command mapping settings. See `config/commands.example.json`.
+| Service | Port | Protocol |
+|---|---:|---|
+| Command bridge | 10308 | UDP Python -> DCS |
+| Telemetry stream | 10309 | UDP DCS -> Python |
+| WebRTC signaling/dashboard | 8765 | HTTP/WebSocket local only |
+| Ollama local model | 11434 | HTTP local only |
 
 ## UDP command protocol
 
@@ -216,6 +252,10 @@ The Lua bridge validates the `VCDCS` prefix, parses the fields, then calls `trig
 
 DCS sends compact JSON packets to UDP `127.0.0.1:10309` with internal, spatial, and tactical state, including fuel, RPM, flaps, gear, G-load, heading, altitude, airspeed, coordinates, locked target info, and RWR alert placeholders.
 
+## Security posture
+
+Voice-Comms-DCS is local-first by default. Keep the WebRTC bridge bound to `127.0.0.1` unless you intentionally add authentication and firewall controls. See `docs/security_report.md` for microphone, WebRTC, UDP, HID, and model supply-chain notes.
+
 ## Packaging
 
 The repository includes:
@@ -223,21 +263,19 @@ The repository includes:
 - `build/pyinstaller.spec` for a one-folder Windows build.
 - `build/build_exe.ps1` for repeatable local packaging.
 - `build/voice-comms-dcs.iss` as an Inno Setup installer template.
+- `build/setup_whisper.ps1` for Whisper model setup.
 
 TTS binaries and model files are not committed. Piper/Kokoro models should be installed locally or bundled later through an explicit installer option.
 
-See `docs/installer_roadmap.md` and `docs/phase2_conversational_cockpit.md` for the release pipeline.
-
 ## Roadmap
 
-- Add full STT from WebRTC audio chunks.
-- Add joystick/global-hotkey PTT capture.
-- Add browser/local WebRTC client UI.
-- Add optional Whisper.cpp backend for higher quality offline STT.
-- Add SRS-specific audio injection path.
-- Add aircraft-specific RWR adapters.
-- Add DCS-BIOS or DCS-gRPC adapter for richer dynamic F10 menu introspection.
-- Add mission-side command registry export so the UI can show currently available voice actions.
+- Backend wiring for dashboard personality toggle.
+- Browser UI polishing and aircraft-specific skins.
+- Joystick profile presets for Warthog, Winwing, T16000M, Logitech, and Viper panels.
+- SRS-specific audio injection path.
+- Aircraft-specific RWR adapters.
+- DCS runtime benchmark tests and tuning guide.
+- Signed installer and model checksum manifest.
 
 ## License
 
