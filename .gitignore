@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build outputs
+dist/
+build_output/
+*.spec.bak
+*.msi
+*.exe
+*.zip
+
+# Local configuration
+config/commands.json
+models/
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
