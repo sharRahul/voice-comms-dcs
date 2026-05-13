@@ -14,6 +14,7 @@ from aiohttp import WSMsgType, web
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import AudioStreamTrack, MediaStreamError, MediaStreamTrack
 
+from .aircraft_profiles import AircraftProfile, load_aircraft_profile
 from .config import load_config
 from .context_manager import ContextManager
 from .nimbus_intelligence import NimbusIntelligence
@@ -142,11 +143,13 @@ class WebRtcBridge:
         port: int = 8765,
         telemetry_host: str = "127.0.0.1",
         telemetry_port: int = 10309,
+        aircraft_profile_path: str | None = "config/aircraft_profiles/default.json",
     ) -> None:
         self.config_path = config_path
         self.host = host
         self.port = port
-        self.context_manager = ContextManager(aircraft_profile="DCS aircraft")
+        self.aircraft_profile: AircraftProfile = load_aircraft_profile(aircraft_profile_path)
+        self.context_manager = ContextManager(aircraft_profile=self.aircraft_profile.prompt_identity())
         self.config = load_config(config_path)
         self.nimbus = NimbusIntelligence(self.config, context_manager=self.context_manager)
         self.radio_voice = RadioVoice()
@@ -172,6 +175,7 @@ class WebRtcBridge:
             {
                 "status": "ok",
                 "peers": len(self.peer_connections),
+                "aircraft_profile": self.aircraft_profile.id,
                 "telemetry_age_seconds": self.telemetry.latest().age_seconds,
                 "context": self.context_manager.get_context().prompt_prefix,
             }
@@ -240,7 +244,7 @@ class WebRtcBridge:
         text = text.strip()
         if not text:
             return
-        decision, dispatch = self.nimbus.handle_pilot_text(text)
+        decision, _dispatch = self.nimbus.handle_pilot_text(text)
         response = decision.response_text
         maybe_reply = reply(response)
         if asyncio.iscoroutine(maybe_reply):
@@ -265,6 +269,8 @@ class WebRtcBridge:
 
 def audio_frame_to_float_mono(frame: av.AudioFrame) -> np.ndarray:
     array = frame.to_ndarray()
+    if array.size == 0:
+        return np.zeros(0, dtype=np.float32)
     if array.ndim == 2:
         array = array.mean(axis=0)
     array = array.astype(np.float32)
@@ -294,6 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--telemetry-host", default="127.0.0.1")
     parser.add_argument("--telemetry-port", type=int, default=10309)
+    parser.add_argument("--aircraft-profile", default="config/aircraft_profiles/default.json")
     args = parser.parse_args(argv)
 
     bridge = WebRtcBridge(
@@ -302,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
         port=args.port,
         telemetry_host=args.telemetry_host,
         telemetry_port=args.telemetry_port,
+        aircraft_profile_path=args.aircraft_profile,
     )
     bridge.run()
     return 0
