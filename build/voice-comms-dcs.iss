@@ -38,10 +38,12 @@ Source: "..\dcs_scripts\dcs_telemetry.lua"; DestDir: "{app}\dcs_scripts"; Flags:
 Source: "..\dcs_scripts\Export.lua.append.example"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\mission_trigger_example.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\build\setup_whisper.ps1"; DestDir: "{app}\build"; Flags: ignoreversion
+Source: "..\build\setup_local_models.ps1"; DestDir: "{app}\build"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\architecture.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\phase2_conversational_cockpit.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\phase3_frontend_high_fidelity.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\model_selection.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\security_report.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\installer_roadmap.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\security_and_limitations.md"; DestDir: "{app}\docs"; Flags: ignoreversion
@@ -60,6 +62,6 @@ begin
   if CurStep = ssPostInstall then
   begin
     Log('Voice-Comms-DCS installed. DCS Saved Games script installation remains manual in v0.3.');
-    Log('Whisper and Piper model files are not bundled by default. Run build\setup_whisper.ps1 after install if needed.');
+    Log('Whisper, Piper, and Ollama model files are not bundled by default. Run build\setup_local_models.ps1 after install if needed.');
   end;
 end;
