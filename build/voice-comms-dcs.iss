@@ -39,6 +39,7 @@ Name: "lang\es"; Description: "Spanish"; GroupDescription: "Install language mod
 
 [Files]
 Source: "..\dist\Voice-Comms-DCS\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\config\commands.json"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "..\config\commands.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "..\config\aircraft_profiles\*"; DestDir: "{app}\config\aircraft_profiles"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\config\i18n\*"; DestDir: "{app}\config\i18n"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -46,6 +47,7 @@ Source: "..\config\joystick_profiles\*"; DestDir: "{app}\config\joystick_profile
 Source: "..\config\rwr\*"; DestDir: "{app}\config\rwr"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\config\srs\*"; DestDir: "{app}\config\srs"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\src\voice_comms_dcs\web_ui\*"; DestDir: "{app}\voice_comms_dcs\web_ui"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dcs_scripts\Export.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\VoiceBridge.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\dcs_telemetry.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\Export.lua.append.example"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
