@@ -2,7 +2,7 @@
 ; Build PyInstaller output first using build\build_exe.ps1.
 
 #define MyAppName "Voice-Comms-DCS"
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.4.0"
 #define MyAppPublisher "Rahul Sharma"
 #define MyAppExeName "Voice-Comms-DCS.exe"
 
@@ -21,17 +21,27 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
+UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "installlua"; Description: "Automatically install DCS Lua bridge and telemetry exporter"; GroupDescription: "DCS integration:"; Flags: checkedonce
+Name: "downloadmodels"; Description: "Download local AI models after installation"; GroupDescription: "Local AI models:"; Flags: checkedonce
+Name: "lang\en"; Description: "English"; GroupDescription: "Install language models:"; Flags: checkedonce
+Name: "lang\zh"; Description: "Chinese"; GroupDescription: "Install language models:"
+Name: "lang\ko"; Description: "Korean"; GroupDescription: "Install language models:"
+Name: "lang\fr"; Description: "French"; GroupDescription: "Install language models:"
+Name: "lang\ru"; Description: "Russian"; GroupDescription: "Install language models:"
+Name: "lang\es"; Description: "Spanish"; GroupDescription: "Install language models:"
 
 [Files]
 Source: "..\dist\Voice-Comms-DCS\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\config\commands.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "..\config\aircraft_profiles\*"; DestDir: "{app}\config\aircraft_profiles"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\config\i18n\*"; DestDir: "{app}\config\i18n"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\src\voice_comms_dcs\web_ui\*"; DestDir: "{app}\voice_comms_dcs\web_ui"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\dcs_scripts\VoiceBridge.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\dcs_telemetry.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
@@ -43,6 +53,7 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\architecture.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\phase2_conversational_cockpit.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\phase3_frontend_high_fidelity.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\phase4_global_deployment.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\model_selection.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\security_report.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\installer_roadmap.md"; DestDir: "{app}\docs"; Flags: ignoreversion
@@ -50,18 +61,36 @@ Source: "..\docs\security_and_limitations.md"; DestDir: "{app}\docs"; Flags: ign
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\Dashboard"; Filename: "http://127.0.0.1:8765/dashboard"
 Name: "{group}\Documentation"; Filename: "{app}\README.md"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-lua --dcs-source-dir ""{app}\dcs_scripts"""; Description: "Install DCS Lua bridge"; Flags: runhidden; Tasks: installlua
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup-dependencies --languages {code:SelectedLanguageArgs} --ollama-model qwen2.5:0.5b --whisper-quality base"; Description: "Download selected local AI models"; Flags: postinstall skipifsilent; Tasks: downloadmodels
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
+[UninstallRun]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-lua"; Flags: runhidden
+
 [Code]
+function SelectedLanguageArgs(Param: String): String;
+begin
+  Result := '';
+  if WizardIsTaskSelected('lang\en') then Result := Result + ' en';
+  if WizardIsTaskSelected('lang\zh') then Result := Result + ' zh';
+  if WizardIsTaskSelected('lang\ko') then Result := Result + ' ko';
+  if WizardIsTaskSelected('lang\fr') then Result := Result + ' fr';
+  if WizardIsTaskSelected('lang\ru') then Result := Result + ' ru';
+  if WizardIsTaskSelected('lang\es') then Result := Result + ' es';
+  if Result = '' then Result := ' en';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    Log('Voice-Comms-DCS installed. DCS Saved Games script installation remains manual in v0.3.');
-    Log('Whisper, Piper, and Ollama model files are not bundled by default. Run build\setup_local_models.ps1 after install if needed.');
+    Log('Voice-Comms-DCS installed. Smart Lua bridge installer and model downloader have been configured.');
+    Log('Selected languages: ' + SelectedLanguageArgs(''));
   end;
 end;
