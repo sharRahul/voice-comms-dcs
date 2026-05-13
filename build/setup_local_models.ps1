@@ -11,7 +11,8 @@ param(
     [switch]$UseUi,
     [switch]$SkipOllama,
     [switch]$SkipPiper,
-    [switch]$SkipWhisper
+    [switch]$SkipWhisper,
+    [switch]$SkipManifest
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +48,12 @@ if ($UseUi) {
 }
 else {
     python -m voice_comms_dcs.setup_dependencies @baseArgs
+}
+
+if (-not $SkipManifest) {
+    Write-Host "\n== Model checksum manifest =="
+    python -m voice_comms_dcs.model_manifest --output build_output\model_manifest.json
+    python -m voice_comms_dcs.model_manifest --output build_output\model_manifest.json --verify
 }
 
 Write-Host "\nSetup complete."
