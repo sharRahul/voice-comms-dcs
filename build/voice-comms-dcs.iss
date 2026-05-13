@@ -7,7 +7,7 @@
 #define MyAppExeName "Voice-Comms-DCS.exe"
 
 [Setup]
-AppId={{A5F25599-8D4F-4A3E-90C0-VOICECOMMSDCS}}
+AppId={{A5F25599-8D4F-4A3E-90C0-0D01510308DC}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
