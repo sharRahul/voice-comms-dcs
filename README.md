@@ -25,6 +25,38 @@ DCS F10 radio menus are powerful but slow to use during high workload flying. Vo
 
 Nimbus extends this into a two-way AI wingman/RIO/ATC assistant that can answer telemetry questions such as `what is my fuel?`, keep responses short in combat, and speak back through a cockpit-radio-style voice.
 
+## Smallest recommended local models
+
+Voice-Comms-DCS is designed so the LLM is **not** responsible for safety-critical command execution. Commands and telemetry answers are deterministic, so the LLM can stay very small.
+
+| Component | Minimum profile | Recommended low-load profile |
+|---|---|---|
+| Ollama LLM | `qwen2.5:0.5b` | `qwen2.5:1.5b` |
+| Piper TTS | `en_US-lessac-low` | `en_US-lessac-low` or `en_US-ryan-low` |
+| Whisper STT | `tiny.en` for fastest tests | `base.en` for better DCS command recognition |
+
+Default project choice:
+
+```text
+Ollama: qwen2.5:0.5b
+Piper:  en_US-lessac-low
+Whisper: ggml-base.en.bin
+```
+
+Set up the minimum model stack:
+
+```powershell
+.\build\setup_local_models.ps1 -Profile minimum -PiperVoice lessac-low
+```
+
+Set up the better low-load model stack:
+
+```powershell
+.\build\setup_local_models.ps1 -Profile recommended -PiperVoice lessac-low
+```
+
+See `docs/model_selection.md` for the full decision rationale and alternatives.
+
 ## Important DCS limitation
 
 DCS does not provide a simple public API for externally "clicking" any currently visible dynamic F10 menu item. The reliable approach is to design missions so voice commands set mission user flags, and mission triggers or Lua scripts then perform the desired action. Future adapters can target DCS-BIOS, DCS-gRPC, SRS, or a custom mission menu registry for deeper dynamic-menu awareness.
@@ -65,11 +97,13 @@ voice-comms-dcs/
 │   ├── architecture.md
 │   ├── phase2_conversational_cockpit.md
 │   ├── phase3_frontend_high_fidelity.md
+│   ├── model_selection.md
 │   ├── security_report.md
 │   ├── installer_roadmap.md
 │   └── security_and_limitations.md
 └── build/
     ├── build_exe.ps1
+    ├── setup_local_models.ps1
     ├── setup_whisper.ps1
     ├── pyinstaller.spec
     └── voice-comms-dcs.iss
@@ -97,18 +131,24 @@ copy config\commands.example.json config\commands.json
 
 Edit `config\commands.json` for your command phrases, HOTAS button, keyboard PTT key, Whisper model path, and local model settings.
 
-### 3. Install Whisper.cpp model
+### 3. Install local models
 
-Start with `base.en` for the best balance. Use `tiny.en` if you need lower latency.
+Minimum local-first setup:
+
+```powershell
+.\build\setup_local_models.ps1 -Profile minimum -PiperVoice lessac-low
+```
+
+Recommended low-load setup:
+
+```powershell
+.\build\setup_local_models.ps1 -Profile recommended -PiperVoice lessac-low
+```
+
+Whisper-only setup is still available:
 
 ```powershell
 .\build\setup_whisper.ps1 -Model base.en
-```
-
-This creates:
-
-```text
-models\whisper\ggml-base.en.bin
 ```
 
 ### 4. Install the DCS Lua bridge and telemetry exporter
@@ -263,7 +303,8 @@ The repository includes:
 - `build/pyinstaller.spec` for a one-folder Windows build.
 - `build/build_exe.ps1` for repeatable local packaging.
 - `build/voice-comms-dcs.iss` as an Inno Setup installer template.
-- `build/setup_whisper.ps1` for Whisper model setup.
+- `build/setup_local_models.ps1` for Ollama, Piper, and Whisper model setup.
+- `build/setup_whisper.ps1` for Whisper-only model setup.
 
 TTS binaries and model files are not committed. Piper/Kokoro models should be installed locally or bundled later through an explicit installer option.
 
