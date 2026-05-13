@@ -66,12 +66,13 @@ Name: "{group}\Documentation"; Filename: "{app}\README.md"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-lua --dcs-source-dir ""{app}\dcs_scripts"""; Description: "Install DCS Lua bridge"; Flags: runhidden; Tasks: installlua
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup-dependencies --languages {code:SelectedLanguageArgs} --ollama-model qwen2.5:0.5b --whisper-quality base"; Description: "Download selected local AI models"; Flags: postinstall skipifsilent; Tasks: downloadmodels
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--install-lua --dcs-source-dir ""{app}\dcs_scripts"""; WorkingDir: "{app}"; Description: "Install DCS Lua bridge"; Flags: runhidden; Tasks: installlua
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--setup-dependencies-ui --languages {code:SelectedLanguageArgs} --ollama-model qwen2.5:0.5b --whisper-quality base"; WorkingDir: "{app}"; Description: "Download selected local AI models"; Flags: postinstall skipifsilent; Tasks: downloadmodels
+Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-lua"; Flags: runhidden
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall-lua"; WorkingDir: "{app}"; Flags: runhidden
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--remove-dependencies --languages en zh ko fr ru es"; WorkingDir: "{app}"; Flags: runhidden
 
 [Code]
 function SelectedLanguageArgs(Param: String): String;
