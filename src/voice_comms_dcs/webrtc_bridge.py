@@ -15,21 +15,32 @@ from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import AudioStreamTrack, MediaStreamError, MediaStreamTrack
 
 from .aircraft_profiles import AircraftProfile, load_aircraft_profile
+from .api_routes import DashboardEventHub, setup_dashboard_routes
 from .config import load_config
 from .context_manager import ContextManager
+from .input_manager import (
+    InputManager,
+    InputManagerConfig,
+    JoystickButtonBinding,
+    KeyboardBinding,
+    PttEvent,
+    PttEventType,
+)
 from .nimbus_intelligence import NimbusIntelligence
 from .radio_voice import RadioVoice
+from .stt_whisper_engine import RollingAudioBuffer, WhisperConfig, WhisperSttEngine
 from .telemetry_listener import TelemetryListener
 
 AUDIO_SAMPLE_RATE = 48000
 AUDIO_FRAME_SAMPLES = 960  # 20 ms at 48 kHz
+WHISPER_SAMPLE_RATE = 16000
 
 
 class EnergyVad:
     """Small local VAD fallback.
 
-    This is intentionally dependency-light. Silero VAD can be added later behind the same
-    `is_speech` method, but this simple gate already helps reject constant cockpit noise.
+    Silero VAD can be added later behind the same `is_speech` method. This fallback rejects
+    constant cockpit noise before any heavier STT work is attempted.
     """
 
     def __init__(self, rms_threshold: float = 0.012, hangover_frames: int = 8) -> None:
@@ -51,11 +62,15 @@ class EnergyVad:
 
 
 class InboundAudioSink:
-    """Receives pilot WebRTC audio frames and exposes speech-gated PCM chunks."""
+    """Receives pilot WebRTC audio frames and feeds a rolling Whisper buffer."""
 
-    def __init__(self, vad: EnergyVad | None = None) -> None:
+    def __init__(
+        self,
+        rolling_buffer: RollingAudioBuffer,
+        vad: EnergyVad | None = None,
+    ) -> None:
+        self.rolling_buffer = rolling_buffer
         self.vad = vad or EnergyVad()
-        self.queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=100)
         self.frames_received = 0
         self.speech_frames = 0
 
@@ -70,12 +85,10 @@ class InboundAudioSink:
                 continue
             self.frames_received += 1
             pcm = audio_frame_to_float_mono(frame)
-            if not self.vad.is_speech(pcm):
-                continue
-            self.speech_frames += 1
-            if self.queue.full():
-                _ = self.queue.get_nowait()
-            await self.queue.put(pcm)
+            if self.vad.is_speech(pcm) or self.rolling_buffer.recording:
+                self.speech_frames += 1
+            # Always append so pre-roll stays populated even before PTT starts.
+            self.rolling_buffer.append(pcm, source_rate=frame.sample_rate or AUDIO_SAMPLE_RATE)
 
 
 class NimbusAudioTrack(AudioStreamTrack):
@@ -119,8 +132,6 @@ class NimbusAudioTrack(AudioStreamTrack):
             for frame in container.decode(stream):
                 samples = audio_frame_to_float_mono(frame)
                 if frame.sample_rate != AUDIO_SAMPLE_RATE:
-                    # Keep v0.2 dependency-light. Piper models can be configured for 48 kHz later;
-                    # for now, simple linear resampling is good enough for radio feedback.
                     samples = linear_resample(samples, frame.sample_rate, AUDIO_SAMPLE_RATE)
                 for chunk in chunk_audio(samples, AUDIO_FRAME_SAMPLES):
                     if self._queue.full():
@@ -129,11 +140,11 @@ class NimbusAudioTrack(AudioStreamTrack):
 
 
 class WebRtcBridge:
-    """Local WebRTC + WebSocket signaling server for Phase 2.
+    """Local WebRTC + WebSocket signaling server for Phase 3.
 
-    It is intentionally local-only by default. The server accepts WebRTC offers over `/ws`, receives
-    pilot audio, returns a Nimbus outbound audio track, and accepts test transcript messages through
-    a data channel or WebSocket while the STT integration is expanded.
+    The bridge accepts WebRTC offers, receives pilot audio, gates utterances through physical PTT,
+    transcribes PTT audio with Whisper.cpp, routes transcripts through Nimbus intelligence, and
+    returns radio-effect AI audio to the pilot.
     """
 
     def __init__(
@@ -144,6 +155,13 @@ class WebRtcBridge:
         telemetry_host: str = "127.0.0.1",
         telemetry_port: int = 10309,
         aircraft_profile_path: str | None = "config/aircraft_profiles/default.json",
+        whisper_model_path: str = "models/whisper/ggml-base.en.bin",
+        whisper_engine: str = "auto",
+        whisper_cli_exe: str = "whisper-cli",
+        ptt_hotkey: str = "right_ctrl",
+        joystick_index: int = 0,
+        joystick_button: int = 1,
+        enable_input_manager: bool = True,
     ) -> None:
         self.config_path = config_path
         self.host = host
@@ -158,17 +176,63 @@ class WebRtcBridge:
             port=telemetry_port,
             on_telemetry=self.context_manager.update_telemetry,
         )
+        self.whisper = WhisperSttEngine(
+            WhisperConfig(
+                model_path=whisper_model_path,
+                engine=whisper_engine,
+                cli_exe=whisper_cli_exe,
+            )
+        )
+        self.audio_buffer = RollingAudioBuffer(sample_rate=WHISPER_SAMPLE_RATE, pre_roll_ms=500)
+        self.dashboard_events = DashboardEventHub()
         self.peer_connections: set[RTCPeerConnection] = set()
+        self.audio_tracks: set[NimbusAudioTrack] = set()
+        self.enable_input_manager = enable_input_manager
+        self.input_manager = InputManager(
+            InputManagerConfig(
+                joystick_enabled=enable_input_manager,
+                keyboard_enabled=enable_input_manager,
+                joystick=JoystickButtonBinding(joystick_index, joystick_button),
+                keyboard=KeyboardBinding(ptt_hotkey),
+            )
+        )
+        self._ptt_source = "idle"
+        self._last_transcript = ""
+        self._last_stt_latency = 0.0
+        self._loop: asyncio.AbstractEventLoop | None = None
+
         self.app = web.Application()
         self.app.router.add_get("/", self.index)
         self.app.router.add_get("/health", self.health)
         self.app.router.add_get("/ws", self.websocket)
+        setup_dashboard_routes(
+            self.app,
+            context_manager=self.context_manager,
+            telemetry_listener=self.telemetry,
+            event_hub=self.dashboard_events,
+            ptt_state_provider=self.ptt_state,
+        )
+        self.app.on_startup.append(self._on_startup)
+        self.app.on_cleanup.append(self._on_cleanup)
+
+    async def _on_startup(self, _app: web.Application) -> None:
+        self._loop = asyncio.get_running_loop()
+        self.telemetry.start()
+        if self.enable_input_manager:
+            self.input_manager.subscribe(self._handle_ptt_event_threadsafe)
+            self.input_manager.start()
+        await self.dashboard_events.broadcast({"type": "system", "message": "Nimbus bridge started"})
+
+    async def _on_cleanup(self, _app: web.Application) -> None:
+        if self.enable_input_manager:
+            self.input_manager.stop()
+        self.telemetry.stop()
+        self.nimbus.close()
+        await asyncio.gather(*(pc.close() for pc in self.peer_connections), return_exceptions=True)
+        self.peer_connections.clear()
 
     async def index(self, _request: web.Request) -> web.Response:
-        return web.Response(
-            text="Voice-Comms-DCS Phase 2 WebRTC bridge is running. Connect signaling to /ws.",
-            content_type="text/plain",
-        )
+        raise web.HTTPFound("/dashboard")
 
     async def health(self, _request: web.Request) -> web.Response:
         return web.json_response(
@@ -178,8 +242,57 @@ class WebRtcBridge:
                 "aircraft_profile": self.aircraft_profile.id,
                 "telemetry_age_seconds": self.telemetry.latest().age_seconds,
                 "context": self.context_manager.get_context().prompt_prefix,
+                "ptt": self.ptt_state(),
             }
         )
+
+    def ptt_state(self) -> dict[str, Any]:
+        return {
+            "active": self.audio_buffer.recording,
+            "source": self._ptt_source,
+            "last_transcript": self._last_transcript,
+            "last_stt_latency_seconds": self._last_stt_latency,
+        }
+
+    def _handle_ptt_event_threadsafe(self, event: PttEvent) -> None:
+        if self._loop is not None:
+            self._loop.call_soon_threadsafe(lambda: asyncio.create_task(self._handle_ptt_event(event)))
+
+    async def _handle_ptt_event(self, event: PttEvent) -> None:
+        self._ptt_source = f"{event.source}:{event.detail}"
+        if event.type is PttEventType.START_PTT:
+            self.audio_buffer.start_ptt()
+            await self.dashboard_events.broadcast({"type": "ptt", "state": self.ptt_state()})
+            return
+
+        utterance = self.audio_buffer.stop_ptt()
+        await self.dashboard_events.broadcast({"type": "ptt", "state": self.ptt_state()})
+        if utterance.size < int(0.18 * WHISPER_SAMPLE_RATE):
+            return
+        await self._transcribe_and_process(utterance)
+
+    async def _transcribe_and_process(self, utterance: np.ndarray) -> None:
+        started = time.perf_counter()
+        try:
+            result = await asyncio.to_thread(self.whisper.transcribe, utterance, WHISPER_SAMPLE_RATE)
+        except Exception as exc:
+            await self.dashboard_events.broadcast({"type": "error", "message": f"Whisper failed: {exc}"})
+            return
+        self._last_stt_latency = result.duration_seconds
+        transcript = result.text.strip()
+        self._last_transcript = transcript
+        await self.dashboard_events.broadcast(
+            {
+                "type": "transcript",
+                "speaker": "pilot",
+                "text": transcript,
+                "stt_latency_seconds": result.duration_seconds,
+                "audio_seconds": result.audio_seconds,
+                "total_elapsed_seconds": time.perf_counter() - started,
+            }
+        )
+        if transcript:
+            await self._process_transcript(transcript, None)
 
     async def websocket(self, request: web.Request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse()
@@ -187,9 +300,10 @@ class WebRtcBridge:
 
         pc = RTCPeerConnection()
         outbound_audio = NimbusAudioTrack()
-        inbound_audio = InboundAudioSink()
+        inbound_audio = InboundAudioSink(self.audio_buffer)
         pc.addTrack(outbound_audio)
         self.peer_connections.add(pc)
+        self.audio_tracks.add(outbound_audio)
 
         @pc.on("track")
         def on_track(track: MediaStreamTrack) -> None:
@@ -201,7 +315,7 @@ class WebRtcBridge:
             @channel.on("message")
             def on_message(message: str) -> None:
                 asyncio.create_task(
-                    self._handle_text_message(str(message), outbound_audio, channel.send)
+                    self._process_transcript(str(message), lambda text: channel.send(text))
                 )
 
         try:
@@ -223,48 +337,57 @@ class WebRtcBridge:
                         }
                     )
                 elif message_type == "transcript":
-                    await self._handle_text_message(
+                    await self._process_transcript(
                         str(payload.get("text", "")),
-                        outbound_audio,
                         lambda text: asyncio.create_task(ws.send_json({"type": "nimbus", "text": text})),
                     )
+                elif message_type == "ptt_start":
+                    await self._handle_ptt_event(PttEvent(PttEventType.START_PTT, "dashboard", time.monotonic()))
+                elif message_type == "ptt_stop":
+                    await self._handle_ptt_event(PttEvent(PttEventType.STOP_PTT, "dashboard", time.monotonic()))
                 elif message_type == "ping":
                     await ws.send_json({"type": "pong", "time": time.time()})
         finally:
             self.peer_connections.discard(pc)
+            self.audio_tracks.discard(outbound_audio)
             await pc.close()
         return ws
 
-    async def _handle_text_message(
-        self,
-        text: str,
-        outbound_audio: NimbusAudioTrack,
-        reply: Any,
-    ) -> None:
+    async def _process_transcript(self, text: str, reply: Any | None) -> None:
         text = text.strip()
         if not text:
             return
+        started = time.perf_counter()
         decision, _dispatch = self.nimbus.handle_pilot_text(text)
         response = decision.response_text
-        maybe_reply = reply(response)
-        if asyncio.iscoroutine(maybe_reply):
-            await maybe_reply
+        await self.dashboard_events.broadcast(
+            {
+                "type": "conversation",
+                "pilot": text,
+                "nimbus": response,
+                "intent": decision.intent.value,
+                "command_id": decision.command_id,
+                "elapsed_seconds": time.perf_counter() - started,
+            }
+        )
+        if reply is not None:
+            maybe_reply = reply(response)
+            if asyncio.iscoroutine(maybe_reply):
+                await maybe_reply
+        await self._speak_response(response)
+
+    async def _speak_response(self, response: str) -> None:
         try:
-            wav = self.radio_voice.synthesise_to_temp_wav(response)
-            await outbound_audio.enqueue_wav(wav)
-        except Exception:
-            # TTS should not break signaling or command dispatch.
-            pass
+            wav = await asyncio.to_thread(self.radio_voice.synthesise_to_temp_wav, response)
+            await asyncio.gather(
+                *(track.enqueue_wav(wav) for track in list(self.audio_tracks)),
+                return_exceptions=True,
+            )
+        except Exception as exc:
+            await self.dashboard_events.broadcast({"type": "error", "message": f"TTS failed: {exc}"})
 
     def run(self) -> None:
-        self.telemetry.start()
         web.run_app(self.app, host=self.host, port=self.port)
-
-    async def close(self) -> None:
-        self.telemetry.stop()
-        self.nimbus.close()
-        await asyncio.gather(*(pc.close() for pc in self.peer_connections), return_exceptions=True)
-        self.peer_connections.clear()
 
 
 def audio_frame_to_float_mono(frame: av.AudioFrame) -> np.ndarray:
@@ -301,6 +424,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--telemetry-host", default="127.0.0.1")
     parser.add_argument("--telemetry-port", type=int, default=10309)
     parser.add_argument("--aircraft-profile", default="config/aircraft_profiles/default.json")
+    parser.add_argument("--whisper-model", default="models/whisper/ggml-base.en.bin")
+    parser.add_argument("--whisper-engine", choices=["auto", "binding", "cli"], default="auto")
+    parser.add_argument("--whisper-cli-exe", default="whisper-cli")
+    parser.add_argument("--ptt-hotkey", default="right_ctrl")
+    parser.add_argument("--joystick-index", type=int, default=0)
+    parser.add_argument("--joystick-button", type=int, default=1)
+    parser.add_argument("--disable-input-manager", action="store_true")
     args = parser.parse_args(argv)
 
     bridge = WebRtcBridge(
@@ -310,6 +440,13 @@ def main(argv: list[str] | None = None) -> int:
         telemetry_host=args.telemetry_host,
         telemetry_port=args.telemetry_port,
         aircraft_profile_path=args.aircraft_profile,
+        whisper_model_path=args.whisper_model,
+        whisper_engine=args.whisper_engine,
+        whisper_cli_exe=args.whisper_cli_exe,
+        ptt_hotkey=args.ptt_hotkey,
+        joystick_index=args.joystick_index,
+        joystick_button=args.joystick_button,
+        enable_input_manager=not args.disable_input_manager,
     )
     bridge.run()
     return 0
