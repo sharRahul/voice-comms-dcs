@@ -11,6 +11,7 @@ import requests
 from .app import DispatchResult, VoiceCommsService
 from .config import AppConfig, load_config
 from .context_manager import AiMode, ContextManager, DynamicContext
+from .language_models import SUPPORTED_LANGUAGES
 from .matcher import find_best_match
 
 
@@ -31,12 +32,7 @@ class IntentDecision:
 
 
 class LocalLlmClient:
-    """Small Ollama-compatible local LLM client.
-
-    No cloud endpoints are used. The default endpoint is the local Ollama HTTP API.
-    The default model is intentionally tiny because command execution and telemetry answers are
-    deterministic; the LLM is only for non-critical conversational wingman responses.
-    """
+    """Small Ollama-compatible local LLM client."""
 
     def __init__(
         self,
@@ -56,10 +52,7 @@ class LocalLlmClient:
                 "messages": messages,
                 "stream": False,
                 "format": "json",
-                "options": {
-                    "temperature": 0.2,
-                    "num_ctx": 1024,
-                },
+                "options": {"temperature": 0.2, "num_ctx": 1024},
             },
             timeout=self.timeout_seconds,
         )
@@ -79,12 +72,7 @@ class LocalLlmClient:
         }
         response = requests.post(
             f"{self.base_url}/api/chat",
-            json={
-                "model": self.model,
-                "messages": messages,
-                "stream": False,
-                "options": options,
-            },
+            json={"model": self.model, "messages": messages, "stream": False, "options": options},
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
@@ -93,12 +81,7 @@ class LocalLlmClient:
 
 
 class NimbusIntelligence:
-    """Telemetry-aware intent switchboard for the conversational cockpit.
-
-    The switchboard uses deterministic command matching first for safety, then a local LLM for
-    informational and conversational responses. It can run without Ollama by falling back to compact
-    deterministic telemetry answers.
-    """
+    """Telemetry-aware multilingual intent switchboard for the conversational cockpit."""
 
     def __init__(
         self,
@@ -116,6 +99,11 @@ class NimbusIntelligence:
         )
         self.enable_llm = enable_llm
         self.command_service = VoiceCommsService(config)
+        self.language = config.language.selected
+
+    def set_language(self, language: str) -> None:
+        if language in SUPPORTED_LANGUAGES:
+            self.language = language
 
     def close(self) -> None:
         self.command_service.close()
@@ -134,7 +122,7 @@ class NimbusIntelligence:
         command_match = find_best_match(text, self.config.commands, self.config.min_confidence)
         if command_match:
             dispatch = self.command_service.handle_transcript(text)
-            response = _combat_trim("Copy.", context.mode)
+            response = _combat_trim(_phrase(self.language, "copy"), context.mode)
             decision = IntentDecision(
                 intent=IntentType.COMMAND,
                 response_text=response,
@@ -178,70 +166,140 @@ class NimbusIntelligence:
     def _answer_telemetry_question(self, text: str, context: DynamicContext) -> str:
         lower = text.lower()
         telemetry = context.telemetry
+        lang = self.language
         if "fuel" in lower or "bingo" in lower:
             fuel = _get_number(telemetry, "internal", "fuel_total_kg")
-            if fuel is None:
-                return "Fuel telemetry unavailable."
-            return f"Fuel is {fuel:.0f} kilograms."
+            return _telemetry_phrase(lang, "fuel_unavailable") if fuel is None else _telemetry_phrase(lang, "fuel", fuel=fuel)
         if "altitude" in lower or "height" in lower:
             alt = _get_number(telemetry, "spatial", "altitude_asl_ft")
             agl = _get_number(telemetry, "spatial", "altitude_agl_ft")
             if alt is None:
-                return "Altitude telemetry unavailable."
-            if agl is not None:
-                return f"Altitude {alt:.0f} feet ASL, {agl:.0f} AGL."
-            return f"Altitude {alt:.0f} feet ASL."
+                return _telemetry_phrase(lang, "altitude_unavailable")
+            return _telemetry_phrase(lang, "altitude_agl", alt=alt, agl=agl) if agl is not None else _telemetry_phrase(lang, "altitude", alt=alt)
         if "speed" in lower or "airspeed" in lower:
             ias = _get_number(telemetry, "spatial", "ias_kt")
             tas = _get_number(telemetry, "spatial", "tas_kt")
             if ias is None:
-                return "Airspeed telemetry unavailable."
-            if tas is not None:
-                return f"Airspeed {ias:.0f} knots indicated, {tas:.0f} true."
-            return f"Airspeed {ias:.0f} knots indicated."
+                return _telemetry_phrase(lang, "speed_unavailable")
+            return _telemetry_phrase(lang, "speed_tas", ias=ias, tas=tas) if tas is not None else _telemetry_phrase(lang, "speed", ias=ias)
         if "target" in lower or "bandit" in lower or "bogey" in lower:
             target = telemetry.get("tactical", {}).get("locked_target", {})
             if not isinstance(target, dict) or not target:
-                return "No locked target data."
-            bearing = target.get("bearing_deg", "unknown")
-            range_nm = target.get("range_nm", "unknown")
-            velocity = target.get("velocity_kt", "unknown")
-            return f"Locked target bearing {bearing}, range {range_nm} miles, speed {velocity}."
-        return context.prompt_prefix or "Telemetry unavailable."
+                return _telemetry_phrase(lang, "target_unavailable")
+            return _telemetry_phrase(
+                lang,
+                "target",
+                bearing=target.get("bearing_deg", "unknown"),
+                range_nm=target.get("range_nm", "unknown"),
+                velocity=target.get("velocity_kt", "unknown"),
+            )
+        return context.prompt_prefix or _telemetry_phrase(lang, "telemetry_unavailable")
 
     def _conversational_response(self, text: str, context: DynamicContext) -> str:
         if not self.enable_llm:
-            return "I am with you. Telemetry is online."
+            return _phrase(self.language, "monitoring")
 
         messages = self.context_manager.build_llm_messages(text)
+        messages[0]["content"] += "\n\n" + language_instruction(self.language)
         try:
             response = self.llm.chat_text(messages, combat_mode=context.mode is AiMode.COMBAT)
         except Exception:
-            return "Local model unavailable. I am still monitoring telemetry."
-        return response or "Say again."
+            return _phrase(self.language, "local_model_unavailable")
+        return response or _phrase(self.language, "say_again")
+
+
+def language_instruction(language: str) -> str:
+    names = {
+        "en": "English",
+        "zh": "Chinese",
+        "ko": "Korean",
+        "fr": "French",
+        "ru": "Russian",
+        "es": "Spanish",
+    }
+    target = names.get(language, "English")
+    return f"Always respond to the pilot in {target}. Keep tactical brevity and do not switch languages."
+
+
+def _phrase(language: str, key: str) -> str:
+    phrases = {
+        "copy": {"en": "Copy.", "zh": "收到。", "ko": "확인.", "fr": "Reçu.", "ru": "Принято.", "es": "Copiado."},
+        "monitoring": {
+            "en": "I am with you. Telemetry is online.",
+            "zh": "我在。遥测在线。",
+            "ko": "함께합니다. 텔레메트리 정상.",
+            "fr": "Je suis avec vous. Télémétrie active.",
+            "ru": "Я с вами. Телеметрия активна.",
+            "es": "Estoy contigo. Telemetría activa.",
+        },
+        "local_model_unavailable": {
+            "en": "Local model unavailable. I am still monitoring telemetry.",
+            "zh": "本地模型不可用。我仍在监控遥测。",
+            "ko": "로컬 모델을 사용할 수 없습니다. 텔레메트리는 계속 감시합니다.",
+            "fr": "Modèle local indisponible. Je surveille toujours la télémétrie.",
+            "ru": "Локальная модель недоступна. Я продолжаю следить за телеметрией.",
+            "es": "Modelo local no disponible. Sigo vigilando la telemetría.",
+        },
+        "say_again": {"en": "Say again.", "zh": "请重复。", "ko": "다시 말해 주세요.", "fr": "Répétez.", "ru": "Повторите.", "es": "Repita."},
+    }
+    return phrases[key].get(language, phrases[key]["en"])
+
+
+def _telemetry_phrase(language: str, key: str, **values: Any) -> str:
+    templates = {
+        "en": {
+            "fuel": "Fuel is {fuel:.0f} kilograms.",
+            "fuel_unavailable": "Fuel telemetry unavailable.",
+            "altitude": "Altitude {alt:.0f} feet ASL.",
+            "altitude_agl": "Altitude {alt:.0f} feet ASL, {agl:.0f} AGL.",
+            "altitude_unavailable": "Altitude telemetry unavailable.",
+            "speed": "Airspeed {ias:.0f} knots indicated.",
+            "speed_tas": "Airspeed {ias:.0f} knots indicated, {tas:.0f} true.",
+            "speed_unavailable": "Airspeed telemetry unavailable.",
+            "target": "Locked target bearing {bearing}, range {range_nm} miles, speed {velocity}.",
+            "target_unavailable": "No locked target data.",
+            "telemetry_unavailable": "Telemetry unavailable.",
+        },
+        "zh": {
+            "fuel": "燃油 {fuel:.0f} 公斤。", "fuel_unavailable": "燃油遥测不可用。",
+            "altitude": "高度 {alt:.0f} 英尺海拔。", "altitude_agl": "高度 {alt:.0f} 英尺海拔，{agl:.0f} 英尺离地。", "altitude_unavailable": "高度遥测不可用。",
+            "speed": "指示空速 {ias:.0f} 节。", "speed_tas": "指示空速 {ias:.0f} 节，真空速 {tas:.0f} 节。", "speed_unavailable": "空速遥测不可用。",
+            "target": "锁定目标方位 {bearing}，距离 {range_nm} 海里，速度 {velocity}。", "target_unavailable": "没有锁定目标数据。", "telemetry_unavailable": "遥测不可用。",
+        },
+        "ko": {
+            "fuel": "연료 {fuel:.0f} 킬로그램.", "fuel_unavailable": "연료 텔레메트리 없음.",
+            "altitude": "고도 {alt:.0f} 피트 ASL.", "altitude_agl": "고도 {alt:.0f} 피트 ASL, {agl:.0f} AGL.", "altitude_unavailable": "고도 텔레메트리 없음.",
+            "speed": "지시대기속도 {ias:.0f} 노트.", "speed_tas": "지시대기속도 {ias:.0f} 노트, 진대기속도 {tas:.0f} 노트.", "speed_unavailable": "속도 텔레메트리 없음.",
+            "target": "락온 목표 방위 {bearing}, 거리 {range_nm} 해리, 속도 {velocity}.", "target_unavailable": "락온 목표 데이터 없음.", "telemetry_unavailable": "텔레메트리 없음.",
+        },
+        "fr": {
+            "fuel": "Carburant {fuel:.0f} kilogrammes.", "fuel_unavailable": "Télémétrie carburant indisponible.",
+            "altitude": "Altitude {alt:.0f} pieds ASL.", "altitude_agl": "Altitude {alt:.0f} pieds ASL, {agl:.0f} AGL.", "altitude_unavailable": "Télémétrie altitude indisponible.",
+            "speed": "Vitesse indiquée {ias:.0f} nœuds.", "speed_tas": "Vitesse indiquée {ias:.0f} nœuds, vraie {tas:.0f}.", "speed_unavailable": "Télémétrie vitesse indisponible.",
+            "target": "Cible verrouillée cap {bearing}, distance {range_nm} nautiques, vitesse {velocity}.", "target_unavailable": "Aucune donnée de cible verrouillée.", "telemetry_unavailable": "Télémétrie indisponible.",
+        },
+        "ru": {
+            "fuel": "Топливо {fuel:.0f} килограммов.", "fuel_unavailable": "Телеметрия топлива недоступна.",
+            "altitude": "Высота {alt:.0f} футов ASL.", "altitude_agl": "Высота {alt:.0f} футов ASL, {agl:.0f} AGL.", "altitude_unavailable": "Телеметрия высоты недоступна.",
+            "speed": "Приборная скорость {ias:.0f} узлов.", "speed_tas": "Приборная скорость {ias:.0f} узлов, истинная {tas:.0f}.", "speed_unavailable": "Телеметрия скорости недоступна.",
+            "target": "Захваченная цель пеленг {bearing}, дальность {range_nm} миль, скорость {velocity}.", "target_unavailable": "Нет данных захваченной цели.", "telemetry_unavailable": "Телеметрия недоступна.",
+        },
+        "es": {
+            "fuel": "Combustible {fuel:.0f} kilogramos.", "fuel_unavailable": "Telemetría de combustible no disponible.",
+            "altitude": "Altitud {alt:.0f} pies ASL.", "altitude_agl": "Altitud {alt:.0f} pies ASL, {agl:.0f} AGL.", "altitude_unavailable": "Telemetría de altitud no disponible.",
+            "speed": "Velocidad indicada {ias:.0f} nudos.", "speed_tas": "Velocidad indicada {ias:.0f} nudos, verdadera {tas:.0f}.", "speed_unavailable": "Telemetría de velocidad no disponible.",
+            "target": "Objetivo fijado rumbo {bearing}, distancia {range_nm} millas, velocidad {velocity}.", "target_unavailable": "Sin datos de objetivo fijado.", "telemetry_unavailable": "Telemetría no disponible.",
+        },
+    }
+    template = templates.get(language, templates["en"]).get(key, templates["en"].get(key, "Telemetry unavailable."))
+    return template.format(**values)
 
 
 def _looks_like_telemetry_question(text: str) -> bool:
     lower = text.lower()
-    keywords = {
-        "fuel",
-        "bingo",
-        "altitude",
-        "height",
-        "speed",
-        "airspeed",
-        "heading",
-        "target",
-        "bandit",
-        "bogey",
-        "rwr",
-        "gear",
-        "flaps",
-    }
+    keywords = {"fuel", "bingo", "altitude", "height", "speed", "airspeed", "heading", "target", "bandit", "bogey", "rwr", "gear", "flaps"}
     question_words = {"what", "how", "where", "status", "tell", "report"}
-    return any(word in lower for word in keywords) and (
-        "?" in text or any(word in lower for word in question_words)
-    )
+    return any(word in lower for word in keywords) and ("?" in text or any(word in lower for word in question_words))
 
 
 def _combat_trim(text: str, mode: AiMode) -> str:
@@ -275,7 +333,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args.config)
     nimbus = NimbusIntelligence(config=config, enable_llm=not args.no_llm)
     decision, dispatch = nimbus.handle_pilot_text(args.text)
-    print(json.dumps({"decision": decision.__dict__, "dispatch": dispatch.__dict__ if dispatch else None}, indent=2, default=str))
+    print(json.dumps({"decision": decision.__dict__, "dispatch": dispatch.__dict__ if dispatch else None}, indent=2, default=str, ensure_ascii=False))
     nimbus.close()
     return 0
 
