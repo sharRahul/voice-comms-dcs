@@ -1,6 +1,36 @@
 {
   "dcs_host": "127.0.0.1",
   "dcs_port": 10308,
+  "telemetry": {
+    "host": "127.0.0.1",
+    "port": 10309,
+    "max_age_seconds": 2.0
+  },
+  "webrtc": {
+    "host": "127.0.0.1",
+    "port": 8765,
+    "vad": {
+      "engine": "energy",
+      "rms_threshold": 0.012,
+      "hangover_frames": 8
+    }
+  },
+  "llm": {
+    "provider": "ollama",
+    "base_url": "http://127.0.0.1:11434",
+    "model": "qwen2.5:3b-instruct",
+    "timeout_seconds": 4.0
+  },
+  "tts": {
+    "engine": "piper",
+    "piper_exe": "piper",
+    "piper_model": "models/piper/en_US-lessac-medium.onnx",
+    "radio_filter": {
+      "bandpass_low_hz": 300,
+      "bandpass_high_hz": 3000,
+      "static_level": 0.012
+    }
+  },
   "matching": {
     "min_confidence": 0.78
   },
@@ -11,8 +41,9 @@
     "device": null
   },
   "push_to_talk": {
-    "enabled": false,
-    "hotkey": "right_ctrl"
+    "enabled": true,
+    "hotkey": "right_ctrl",
+    "release_grace_ms": 300
   },
   "commands": [
     {
@@ -42,6 +73,20 @@
       "action": {
         "type": "flag",
         "flag": 5102,
+        "value": 1
+      }
+    },
+    {
+      "id": "gear_down",
+      "description": "Ask mission logic or aircraft-specific adapter to handle gear-down workflow.",
+      "phrases": [
+        "gear down",
+        "lower the gear",
+        "drop gear"
+      ],
+      "action": {
+        "type": "flag",
+        "flag": 5110,
         "value": 1
       }
     },
