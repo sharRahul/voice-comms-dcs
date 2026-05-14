@@ -30,6 +30,7 @@ class DashboardEventHub:
         self.send_timeout_seconds = max(0.05, float(send_timeout_seconds))
         self._clients: set[web.WebSocketResponse] = set()
         self._lock = asyncio.Lock()
+        self.privacy: DashboardPrivacyConfig | None = None
 
     async def connect(self, ws: web.WebSocketResponse) -> None:
         async with self._lock:
@@ -49,9 +50,8 @@ class DashboardEventHub:
             return False
 
     async def broadcast(self, event: dict[str, Any]) -> None:
-        privacy = getattr(self, "privacy", None)
-        if isinstance(privacy, DashboardPrivacyConfig):
-            event = _redact_event(event, privacy)
+        if isinstance(self.privacy, DashboardPrivacyConfig):
+            event = _redact_event(event, self.privacy)
         message = json.dumps(event, default=str, ensure_ascii=False)
         async with self._lock:
             clients = list(self._clients)

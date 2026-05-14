@@ -135,8 +135,6 @@ class ContextManager:
     ) -> str:
         internal = telemetry.get("internal", {})
         spatial = telemetry.get("spatial", {})
-        tactical = telemetry.get("tactical", {})
-        locked = tactical.get("locked_target", {}) if isinstance(tactical, dict) else {}
 
         fields = [
             f"Mode: {mode.value.upper()}",

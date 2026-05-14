@@ -125,6 +125,8 @@ class NimbusAudioTrack(AudioStreamTrack):
         with av.open(str(path)) as container:
             stream = next(s for s in container.streams if s.type == "audio")
             for frame in container.decode(stream):
+                if not isinstance(frame, av.AudioFrame):
+                    continue
                 samples = audio_frame_to_float_mono(frame)
                 if frame.sample_rate != AUDIO_SAMPLE_RATE:
                     samples = linear_resample(samples, frame.sample_rate, AUDIO_SAMPLE_RATE)

@@ -215,7 +215,7 @@ class DependencyManager:
         restart_without_range = False
         for attempt in range(2):
             existing = partial.stat().st_size if partial.exists() and not restart_without_range else 0
-            headers = {"Range": f"bytes={existing}-"} if existing > 0 else {}
+            headers: dict[str, str | bytes] = {"Range": f"bytes={existing}-"} if existing > 0 else {}
 
             with requests.get(item.url, headers=headers, stream=True, timeout=30) as response:
                 if response.status_code == 416:

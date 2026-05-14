@@ -148,8 +148,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Model manifest verified: {output}")
             return 0 if ok else 1
-        manifest = build_model_manifest(root=root)
-        write_model_manifest(manifest, output)
+        model_manifest = build_model_manifest(root=root)
+        write_model_manifest(model_manifest, output)
         print(f"Wrote {output}")
         return 0
 
@@ -163,25 +163,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.test_phrase:
         service = VoiceCommsService(config)
         try:
-            result = service.handle_transcript(args.test_phrase)
+            dispatch_result = service.handle_transcript(args.test_phrase)
         finally:
             service.close()
 
-        if not result.matched:
-            print(f"No match: {result.reason}")
+        if not dispatch_result.matched:
+            print(f"No match: {dispatch_result.reason}")
             return 1
 
-        assert result.match is not None
+        assert dispatch_result.match is not None
         print(
             "Matched "
-            f"{result.match.command.id} "
-            f"confidence={result.match.confidence:.2f} "
-            f"payload={result.payload}"
+            f"{dispatch_result.match.command.id} "
+            f"confidence={dispatch_result.match.confidence:.2f} "
+            f"payload={dispatch_result.payload}"
         )
         return 0
 
-    app = VoiceCommsUi(config=config, config_path=str(config_path))
-    app.mainloop()
+    ui_app = VoiceCommsUi(config=config, config_path=str(config_path))
+    ui_app.mainloop()
     return 0
 
 
