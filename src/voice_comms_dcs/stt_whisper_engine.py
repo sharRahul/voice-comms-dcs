@@ -39,6 +39,7 @@ class WhisperConfig:
     beam_size: int = 1
     highpass_hz: float = 120.0
     lowpass_hz: float = 7600.0
+    cli_timeout_seconds: float = 30.0
 
 
 @dataclass(frozen=True)
@@ -55,23 +56,36 @@ class WhisperBackend(Protocol):
 
 
 class RollingAudioBuffer:
-    """Thread-light rolling buffer with 500 ms pre-roll support.
+    """Thread-light rolling buffer with pre-roll and bounded active PTT audio.
 
     Audio is continuously appended from WebRTC frames. When PTT starts, the active utterance is
-    initialised with the last pre-roll samples so the first word is not clipped. When PTT stops,
-    the utterance is returned and reset.
+    initialised with the last pre-roll samples so the first word is not clipped. Active PTT audio is
+    capped to the configured max context duration so stuck PTT cannot grow memory indefinitely.
     """
 
-    def __init__(self, sample_rate: int = DEFAULT_SAMPLE_RATE, pre_roll_ms: int = 500) -> None:
+    def __init__(
+        self,
+        sample_rate: int = DEFAULT_SAMPLE_RATE,
+        pre_roll_ms: int = 500,
+        max_context_ms: int = 15000,
+    ) -> None:
         self.sample_rate = sample_rate
-        self.pre_roll_samples = int(sample_rate * pre_roll_ms / 1000)
+        self.pre_roll_ms = max(0, int(pre_roll_ms))
+        self.max_context_ms = max(1, int(max_context_ms))
+        self.pre_roll_samples = int(sample_rate * self.pre_roll_ms / 1000)
+        self.max_context_samples = max(1, int(sample_rate * self.max_context_ms / 1000))
         self._pre_roll: deque[float] = deque(maxlen=self.pre_roll_samples)
         self._active_chunks: list[np.ndarray] = []
+        self._active_sample_count = 0
         self._recording = False
 
     @property
     def recording(self) -> bool:
         return self._recording
+
+    @property
+    def active_seconds(self) -> float:
+        return self._active_sample_count / float(self.sample_rate)
 
     def append(self, samples: np.ndarray, source_rate: int) -> None:
         prepared = prepare_audio(samples, source_rate=source_rate, target_rate=self.sample_rate)
@@ -80,23 +94,44 @@ class RollingAudioBuffer:
         self._pre_roll.extend(float(x) for x in prepared)
         if self._recording:
             self._active_chunks.append(prepared)
+            self._active_sample_count += int(prepared.size)
+            self._trim_active_chunks()
 
     def start_ptt(self) -> None:
         self._recording = True
         pre_roll = np.array(list(self._pre_roll), dtype=np.float32)
         self._active_chunks = [pre_roll] if pre_roll.size else []
+        self._active_sample_count = int(pre_roll.size)
+        self._trim_active_chunks()
 
     def stop_ptt(self) -> np.ndarray:
         self._recording = False
         if not self._active_chunks:
+            self._active_sample_count = 0
             return np.zeros(0, dtype=np.float32)
         utterance = np.concatenate(self._active_chunks).astype(np.float32)
+        if utterance.size > self.max_context_samples:
+            utterance = utterance[-self.max_context_samples :]
         self._active_chunks = []
+        self._active_sample_count = 0
         return utterance
 
     def clear(self) -> None:
         self._active_chunks = []
+        self._active_sample_count = 0
         self._recording = False
+
+    def _trim_active_chunks(self) -> None:
+        while self._active_sample_count > self.max_context_samples and self._active_chunks:
+            overflow = self._active_sample_count - self.max_context_samples
+            first = self._active_chunks[0]
+            if first.size <= overflow:
+                self._active_sample_count -= int(first.size)
+                self._active_chunks.pop(0)
+            else:
+                self._active_chunks[0] = first[int(overflow) :]
+                self._active_sample_count -= int(overflow)
+                break
 
 
 class WhisperCppPythonBackend:
@@ -134,39 +169,45 @@ class WhisperCliBackend:
     def transcribe(self, samples: np.ndarray, sample_rate: int) -> str:
         wav_path = write_temp_wav(samples, sample_rate)
         output_base = wav_path.with_suffix("")
+        txt_path = output_base.with_suffix(".txt")
         try:
-            process = subprocess.run(
-                [
-                    self.exe,
-                    "-m",
-                    self.config.model_path,
-                    "-f",
-                    str(wav_path),
-                    "-l",
-                    self.config.language,
-                    "-t",
-                    str(self.config.threads),
-                    "-bs",
-                    str(self.config.beam_size),
-                    "-otxt",
-                    "-of",
-                    str(output_base),
-                    "-nt",
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-                encoding="utf-8",
-                errors="replace",
-            )
-            txt_path = output_base.with_suffix(".txt")
+            try:
+                process = subprocess.run(
+                    [
+                        self.exe,
+                        "-m",
+                        self.config.model_path,
+                        "-f",
+                        str(wav_path),
+                        "-l",
+                        self.config.language,
+                        "-t",
+                        str(self.config.threads),
+                        "-bs",
+                        str(self.config.beam_size),
+                        "-otxt",
+                        "-of",
+                        str(output_base),
+                        "-nt",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=self.config.cli_timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise TimeoutError(
+                    f"whisper.cpp transcription timed out after {self.config.cli_timeout_seconds:g} seconds"
+                ) from exc
             if txt_path.exists():
                 return txt_path.read_text(encoding="utf-8", errors="replace").strip()
             if process.returncode != 0:
                 raise RuntimeError(process.stderr.strip() or f"whisper.cpp exited {process.returncode}")
             return process.stdout.strip()
         finally:
-            for path in (wav_path, output_base.with_suffix(".txt")):
+            for path in (wav_path, txt_path):
                 try:
                     path.unlink(missing_ok=True)
                 except OSError:
@@ -307,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default=WhisperConfig.model_path)
     parser.add_argument("--engine", choices=["auto", "binding", "cli"], default="auto")
     parser.add_argument("--cli-exe", default=WhisperConfig.cli_exe)
+    parser.add_argument("--cli-timeout", type=float, default=WhisperConfig.cli_timeout_seconds)
     parser.add_argument("--wav", required=True, help="16-bit PCM WAV file to transcribe.")
     parser.add_argument("--threads", type=int, default=4)
     parser.add_argument("--lang", default="en", choices=["en", "zh", "ko", "fr", "ru", "es"])
@@ -318,6 +360,7 @@ def main(argv: list[str] | None = None) -> int:
             model_path=args.model,
             engine=args.engine,
             cli_exe=args.cli_exe,
+            cli_timeout_seconds=args.cli_timeout,
             threads=args.threads,
             language=get_whisper_language_code(args.lang),
         )
