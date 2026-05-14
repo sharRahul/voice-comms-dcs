@@ -1,0 +1,4 @@
+# Optional Whisper.cpp Python binding.
+# This package builds native whisper.cpp sources and may require a compatible CMake/toolchain.
+# CI and Windows installer builds use the whisper-cli fallback path instead.
+whisper-cpp-python>=0.2.0
