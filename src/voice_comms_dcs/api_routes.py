@@ -9,6 +9,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
+from .config import DashboardPrivacyConfig
 from .dashboard_security import (
     DashboardSecurity,
     DashboardValidationError,
@@ -73,6 +74,7 @@ def setup_dashboard_routes(
     skin_setter: Any | None = None,
     joystick_preset_setter: Any | None = None,
     security: DashboardSecurity | None = None,
+    privacy: DashboardPrivacyConfig | None = None,
 ) -> None:
     """Attach local-only dashboard routes to the aiohttp app."""
 
@@ -84,6 +86,18 @@ def setup_dashboard_routes(
     ) -> None:
         if security is not None:
             security.require_request(request, check_origin=check_origin, allow_query=allow_query)
+
+    resolved_privacy = _resolve_privacy(privacy, ptt_state_provider, context_manager)
+
+    def snapshot() -> dict[str, Any]:
+        return _snapshot(
+            context_manager,
+            telemetry_listener,
+            ptt_state_provider,
+            language_provider,
+            settings_provider,
+            privacy=resolved_privacy,
+        )
 
     async def dashboard(request: web.Request) -> web.Response:
         require_auth(request, allow_query=True)
@@ -113,7 +127,7 @@ def setup_dashboard_routes(
     async def status(request: web.Request) -> web.Response:
         require_auth(request)
         return web.json_response(
-            _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider, settings_provider),
+            snapshot(),
             dumps=lambda data: json.dumps(data, ensure_ascii=False),
         )
 
@@ -180,7 +194,7 @@ def setup_dashboard_routes(
             await ws.send_json(
                 {
                     "type": "status",
-                    "payload": _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider, settings_provider),
+                    "payload": snapshot(),
                 }
             )
             while True:
@@ -188,7 +202,7 @@ def setup_dashboard_routes(
                     await ws.send_json(
                         {
                             "type": "status",
-                            "payload": _snapshot(context_manager, telemetry_listener, ptt_state_provider, language_provider, settings_provider),
+                            "payload": snapshot(),
                         }
                     )
                     message = await asyncio.wait_for(ws.receive(), timeout=0.75)
@@ -211,21 +225,47 @@ def setup_dashboard_routes(
     app.router.add_get("/api/live", live_ws)
 
 
+def _resolve_privacy(
+    privacy: DashboardPrivacyConfig | None,
+    ptt_state_provider: Any,
+    context_manager: Any,
+) -> DashboardPrivacyConfig:
+    if privacy is not None:
+        return privacy
+    for candidate in (getattr(ptt_state_provider, "__self__", None), context_manager):
+        config = getattr(candidate, "config", None)
+        configured = getattr(config, "dashboard_privacy", None)
+        if isinstance(configured, DashboardPrivacyConfig):
+            return configured
+    return DashboardPrivacyConfig()
+
+
 def _snapshot(
     context_manager: Any,
     telemetry_listener: Any,
     ptt_state_provider: Any,
     language_provider: Any | None = None,
     settings_provider: Any | None = None,
+    *,
+    privacy: DashboardPrivacyConfig | None = None,
 ) -> dict[str, Any]:
+    privacy = privacy or DashboardPrivacyConfig()
     latest = telemetry_listener.latest()
     context = context_manager.get_context()
-    ptt_state = ptt_state_provider() if callable(ptt_state_provider) else {}
+    ptt_state = _redact_ptt_state(
+        ptt_state_provider() if callable(ptt_state_provider) else {},
+        privacy,
+    )
     telemetry = context.telemetry or latest.data or {}
     language = language_provider() if callable(language_provider) else "en"
     settings = settings_provider() if callable(settings_provider) else {"personality": "professional", "skin": "default"}
     if hasattr(settings, "__dict__"):
         settings = settings.__dict__
+    spatial = dict(telemetry.get("spatial", {}))
+    if not privacy.expose_position:
+        _redact_position(spatial)
+    tactical = dict(telemetry.get("tactical", {})) if privacy.expose_tactical else {}
+    context_text = context.prompt_prefix if privacy.expose_context else ""
     return {
         "telemetry_age_seconds": latest.age_seconds,
         "language": language,
@@ -234,12 +274,29 @@ def _snapshot(
         "ptt": ptt_state,
         "mode": getattr(context.mode, "value", str(context.mode)),
         "warning": context.warning.message if context.warning else None,
-        "context": context.prompt_prefix,
+        "context": context_text,
         "aircraft": telemetry.get("aircraft", {}),
         "internal": telemetry.get("internal", {}),
-        "spatial": telemetry.get("spatial", {}),
-        "tactical": telemetry.get("tactical", {}),
+        "spatial": spatial,
+        "tactical": tactical,
     }
+
+
+def _redact_position(spatial: dict[str, Any]) -> None:
+    for key in ("lat", "lon", "latitude", "longitude", "x", "y", "z"):
+        spatial.pop(key, None)
+
+
+def _redact_ptt_state(ptt_state: Any, privacy: DashboardPrivacyConfig) -> dict[str, Any]:
+    if not isinstance(ptt_state, dict):
+        return {}
+    redacted = dict(ptt_state)
+    if not privacy.expose_last_transcript:
+        redacted.pop("last_transcript", None)
+    if not privacy.expose_model_paths and "whisper_model" in redacted:
+        model = redacted.get("whisper_model")
+        redacted["whisper_model"] = Path(str(model)).name if model else None
+    return redacted
 
 
 def _read_web_asset(name: str) -> str:
