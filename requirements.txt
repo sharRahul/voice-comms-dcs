@@ -14,6 +14,7 @@ requests>=2.32.0
 # Phase 3 high-fidelity UX dependencies
 pygame>=2.5.2
 pynput>=1.7.6
+PyQt6>=6.6.0
 
 # Optional Whisper.cpp Python binding:
 #   python -m pip install -r requirements-whisper.txt -c constraints.txt
