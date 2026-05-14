@@ -34,7 +34,18 @@ else {
 if (Test-Path "dist") {
     Remove-Item -Recurse -Force "dist"
 }
+if (Test-Path "build\pyinstaller") {
+    Remove-Item -Recurse -Force "build\pyinstaller"
+}
 
 pyinstaller --noconfirm --clean $SpecPath
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller failed with exit code $LASTEXITCODE"
+}
 
-Write-Host "Build complete: dist\Voice-Comms-DCS\Voice-Comms-DCS.exe"
+$expectedExe = "dist\Voice-Comms-DCS\Voice-Comms-DCS.exe"
+if (-not (Test-Path $expectedExe)) {
+    throw "PyInstaller completed but output is missing: $expectedExe"
+}
+
+Write-Host "Build complete: $expectedExe"
