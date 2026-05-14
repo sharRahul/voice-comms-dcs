@@ -113,7 +113,7 @@ class LlmConfig:
     model: str = "qwen2.5:0.5b"
     recommended_model: str = "qwen2.5:1.5b"
     high_quality_model: str = "llama3.2:3b"
-    timeout_seconds: float = 3.0
+    timeout_seconds: float = 8.0
 
 
 @dataclass(frozen=True)
@@ -388,7 +388,7 @@ def load_config(path: str | Path) -> AppConfig:
             model=_as_str(llm_data.get("model"), "qwen2.5:0.5b"),
             recommended_model=_as_str(llm_data.get("recommended_model"), "qwen2.5:1.5b"),
             high_quality_model=_as_str(llm_data.get("high_quality_model"), "llama3.2:3b"),
-            timeout_seconds=_as_float(llm_data.get("timeout_seconds"), 3.0),
+            timeout_seconds=_as_float(llm_data.get("timeout_seconds"), 8.0),
         ),
         tts=TtsConfig(
             engine=_as_str(tts_data.get("engine"), "piper").lower(),
