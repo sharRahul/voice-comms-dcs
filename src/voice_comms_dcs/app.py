@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .config import AppConfig
-from .matcher import CommandMatcher, MatchResult
+from .matcher import CommandMatcher, MatchResult, consume_recent_match
 from .network import DcsUdpClient, UdpTarget
 
 
@@ -31,10 +31,16 @@ class VoiceCommsService:
         self.client.close()
 
     def handle_transcript(self, transcript: str) -> DispatchResult:
-        match = self.matcher.find_best_match(
-            transcript=transcript,
-            min_confidence=self.config.min_confidence,
+        match = consume_recent_match(
+            transcript,
+            self.config.commands,
+            self.config.min_confidence,
         )
+        if match is None:
+            match = self.matcher.find_best_match(
+                transcript=transcript,
+                min_confidence=self.config.min_confidence,
+            )
         if match is None:
             return DispatchResult(
                 matched=False,
