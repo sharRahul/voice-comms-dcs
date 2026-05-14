@@ -7,7 +7,6 @@ import platform
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
 
 from .language_models import PIPER_VOICES, WHISPER_MODELS
 
