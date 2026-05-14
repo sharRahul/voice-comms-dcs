@@ -50,7 +50,6 @@ a = Analysis(
         "requests",
         "pygame",
         "pynput",
-        "whisper_cpp_python",
         "winreg",
         "voice_comms_dcs.dashboard_settings",
         "voice_comms_dcs.input_profiles",
