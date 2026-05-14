@@ -5,6 +5,7 @@
   "frequency_mhz": 251.0,
   "modulation": "AM",
   "coalition": "blue",
+  "timeout_seconds": 10.0,
   "command_template": [
     "{exe}",
     "--file",
