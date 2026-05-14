@@ -371,7 +371,7 @@ class WebRtcBridge:
         return {
             "active": self.audio_buffer.recording,
             "active_seconds": self.audio_buffer.active_seconds,
-            "max_context_ms": self.audio_buffer.max_context_samples,
+            "max_context_ms": self.audio_buffer.max_context_ms,
             "source": self._ptt_source,
             "last_transcript": self._last_transcript,
             "last_stt_latency_seconds": self._last_stt_latency,
