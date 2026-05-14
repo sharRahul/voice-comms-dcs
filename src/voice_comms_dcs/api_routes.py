@@ -49,6 +49,9 @@ class DashboardEventHub:
             return False
 
     async def broadcast(self, event: dict[str, Any]) -> None:
+        privacy = getattr(self, "privacy", None)
+        if isinstance(privacy, DashboardPrivacyConfig):
+            event = _redact_event(event, privacy)
         message = json.dumps(event, default=str, ensure_ascii=False)
         async with self._lock:
             clients = list(self._clients)
@@ -88,6 +91,7 @@ def setup_dashboard_routes(
             security.require_request(request, check_origin=check_origin, allow_query=allow_query)
 
     resolved_privacy = _resolve_privacy(privacy, ptt_state_provider, context_manager)
+    event_hub.privacy = resolved_privacy
 
     def snapshot() -> dict[str, Any]:
         return _snapshot(
@@ -280,6 +284,18 @@ def _snapshot(
         "spatial": spatial,
         "tactical": tactical,
     }
+
+
+def _redact_event(event: dict[str, Any], privacy: DashboardPrivacyConfig) -> dict[str, Any]:
+    if event.get("type") == "ptt" and isinstance(event.get("state"), dict):
+        redacted = dict(event)
+        redacted["state"] = _redact_ptt_state(redacted["state"], privacy)
+        return redacted
+    if event.get("type") == "transcript" and not privacy.expose_last_transcript:
+        redacted = dict(event)
+        redacted["text"] = "[redacted]"
+        return redacted
+    return event
 
 
 def _redact_position(spatial: dict[str, Any]) -> None:
