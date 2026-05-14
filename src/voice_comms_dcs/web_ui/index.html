@@ -3,96 +3,186 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Nimbus Cockpit Dashboard</title>
+  <title>Nimbus — DCS World AI Wingman</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="stylesheet" href="/web_ui/style.css" />
 </head>
 <body data-skin="default">
-  <main class="shell">
-    <section class="hero glass">
-      <div>
-        <p class="eyebrow">Voice-Comms-DCS Nimbus</p>
-        <h1 data-i18n="dashboard.title">Nimbus Cockpit Dashboard</h1>
-        <p class="muted" data-i18n="dashboard.subtitle">Local WebRTC, HOTAS PTT, Whisper.cpp STT, telemetry, and radio voice monitoring.</p>
-      </div>
-      <div class="status-stack">
-        <label class="select-label" for="languageSelect" data-i18n="label.language">Language</label>
-        <select id="languageSelect">
-          <option value="en">English</option>
-          <option value="zh">中文</option>
-          <option value="ko">한국어</option>
-          <option value="fr">Français</option>
-          <option value="ru">Русский</option>
-          <option value="es">Español</option>
-        </select>
-        <span id="connectionStatus" class="pill warn" data-i18n="status.connecting">Dashboard connecting</span>
-        <span id="pttStatus" class="pill" data-i18n="status.ptt_idle">PTT idle</span>
-        <span id="modeStatus" class="pill" data-i18n="status.mode_unknown">Mode unknown</span>
-      </div>
-    </section>
 
-    <section class="grid">
-      <article class="glass panel span-2">
-        <div class="panel-header">
-          <h2 data-i18n="section.conversation">Conversation Terminal</h2>
-          <div class="button-row">
-            <button id="connectBtn" data-i18n="button.connect_webrtc">Connect WebRTC</button>
-            <button id="pttStartBtn" data-i18n="button.ptt_start">PTT Start</button>
-            <button id="pttStopBtn" data-i18n="button.ptt_stop">PTT Stop</button>
+  <!-- ── TOP NAV ─────────────────────────────────────────────────── -->
+  <nav class="topbar">
+    <div class="topbar-brand">
+      <svg class="brand-dcs-logo" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <!-- radar sweep -->
+        <circle cx="18" cy="18" r="16" stroke="#f59e0f" stroke-width="1.5" opacity="0.5"/>
+        <circle cx="18" cy="18" r="10" stroke="#f59e0f" stroke-width="1" opacity="0.35"/>
+        <line x1="18" y1="18" x2="18" y2="3" stroke="#f59e0f" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="18" y1="18" x2="30" y2="10" stroke="#f59e0f" stroke-width="1.2" stroke-linecap="round" opacity="0.55"/>
+        <circle cx="24" cy="11" r="2" fill="#f59e0f" opacity="0.9"/>
+        <circle cx="18" cy="18" r="2.5" fill="#f59e0f"/>
+      </svg>
+      <div>
+        <span class="brand-name">NIMBUS <span class="brand-dcs-tag">DCS</span></span>
+        <span class="brand-sub">Digital Combat Simulator · AI Wingman</span>
+      </div>
+    </div>
+    <div class="topbar-pills">
+      <span id="connectionPill" class="pill warn">
+        <span class="dot"></span><span id="connectionLabel" data-i18n="status.connecting">Connecting…</span>
+      </span>
+      <span id="pttPill" class="pill">
+        <span class="dot"></span><span id="pttLabel" data-i18n="status.ptt_idle">PTT idle</span>
+      </span>
+      <span id="modePill" class="pill">
+        <span class="dot"></span><span id="modeLabel" data-i18n="status.mode_unknown">Mode –</span>
+      </span>
+    </div>
+    <div class="topbar-controls">
+      <select id="languageSelect" title="Language" aria-label="Language">
+        <option value="en">🇬🇧 English</option>
+        <option value="zh">🇨🇳 中文</option>
+        <option value="ko">🇰🇷 한국어</option>
+        <option value="fr">🇫🇷 Français</option>
+        <option value="ru">🇷🇺 Русский</option>
+        <option value="es">🇪🇸 Español</option>
+      </select>
+      <select id="skinSelect" title="Aircraft skin" aria-label="Aircraft skin">
+        <option value="default">✈ Default</option>
+        <option value="f16">F-16 Viper</option>
+        <option value="f18">F/A-18 Hornet</option>
+        <option value="f15">F-15 Eagle</option>
+        <option value="su27">Su-27 Flanker</option>
+        <option value="mig29">MiG-29 Fulcrum</option>
+        <option value="su57">Su-57 Felon</option>
+        <option value="f22">F-22 Raptor</option>
+      </select>
+    </div>
+  </nav>
+
+  <!-- ── BODY GRID ───────────────────────────────────────────────── -->
+  <div class="layout">
+
+    <!-- LEFT COLUMN -->
+    <aside class="sidebar">
+
+      <!-- Telemetry card -->
+      <div class="card" id="telemetryCard">
+        <div class="card-header">
+          <span class="card-title" data-i18n="section.telemetry">Telemetry</span>
+          <span id="telemetryAge" class="badge">–</span>
+        </div>
+        <div class="gauges">
+          <div class="gauge">
+            <svg class="gauge-arc" viewBox="0 0 80 46">
+              <path d="M8,44 A36,36 0 0,1 72,44" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="6" stroke-linecap="round"/>
+              <path id="fuelArc" d="M8,44 A36,36 0 0,1 72,44" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="113" stroke-dashoffset="113"/>
+            </svg>
+            <span class="gauge-val" id="fuelGauge">–</span>
+            <span class="gauge-lbl" data-i18n="gauge.fuel">FUEL kg</span>
+          </div>
+          <div class="gauge">
+            <svg class="gauge-arc" viewBox="0 0 80 46">
+              <path d="M8,44 A36,36 0 0,1 72,44" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="6" stroke-linecap="round"/>
+              <path id="altArc" d="M8,44 A36,36 0 0,1 72,44" fill="none" stroke="var(--accent2)" stroke-width="6" stroke-linecap="round" stroke-dasharray="113" stroke-dashoffset="113"/>
+            </svg>
+            <span class="gauge-val" id="altGauge">–</span>
+            <span class="gauge-lbl" data-i18n="gauge.altitude">ALT ft</span>
+          </div>
+          <div class="gauge">
+            <svg class="gauge-arc" viewBox="0 0 80 46">
+              <path d="M8,44 A36,36 0 0,1 72,44" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="6" stroke-linecap="round"/>
+              <path id="iasArc" d="M8,44 A36,36 0 0,1 72,44" fill="none" stroke="var(--accent)" stroke-width="6" stroke-linecap="round" stroke-dasharray="113" stroke-dashoffset="113"/>
+            </svg>
+            <span class="gauge-val" id="speedGauge">–</span>
+            <span class="gauge-lbl" data-i18n="gauge.airspeed">IAS kt</span>
+          </div>
+          <div class="gauge">
+            <svg class="gauge-arc" viewBox="0 0 80 46">
+              <path d="M8,44 A36,36 0 0,1 72,44" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="6" stroke-linecap="round"/>
+              <path id="gArc" d="M8,44 A36,36 0 0,1 72,44" fill="none" stroke="var(--danger)" stroke-width="6" stroke-linecap="round" stroke-dasharray="113" stroke-dashoffset="113"/>
+            </svg>
+            <span class="gauge-val" id="gGauge">–</span>
+            <span class="gauge-lbl" data-i18n="gauge.g_load">G LOAD</span>
           </div>
         </div>
-        <div id="terminal" class="terminal"></div>
-        <form id="manualForm" class="manual-form">
-          <input id="manualText" type="text" data-i18n-placeholder="manual.placeholder" placeholder="Type a test transcript, e.g. request tanker" autocomplete="off" />
-          <button type="submit" data-i18n="button.send">Send</button>
-        </form>
-        <audio id="remoteAudio" autoplay controls></audio>
-      </article>
-
-      <article class="glass panel">
-        <h2 data-i18n="section.telemetry">Telemetry Gauges</h2>
-        <div class="gauges">
-          <div class="gauge"><span data-i18n="gauge.fuel">Fuel</span><strong id="fuelGauge">--</strong><em>kg</em></div>
-          <div class="gauge"><span data-i18n="gauge.altitude">Altitude</span><strong id="altGauge">--</strong><em>ft</em></div>
-          <div class="gauge"><span data-i18n="gauge.airspeed">Airspeed</span><strong id="speedGauge">--</strong><em>kt</em></div>
-          <div class="gauge"><span data-i18n="gauge.g_load">G Load</span><strong id="gGauge">--</strong><em>g</em></div>
+        <div class="stat-row">
+          <div class="stat"><span class="stat-lbl">HDG</span><strong id="hdgVal">–</strong><em>°</em></div>
+          <div class="stat"><span class="stat-lbl">GEAR</span><strong id="gearVal">–</strong></div>
+          <div class="stat"><span class="stat-lbl">FLAPS</span><strong id="flapsVal">–</strong></div>
         </div>
-      </article>
+      </div>
 
-      <article class="glass panel control-panel">
-        <h2 data-i18n="section.personality">AI Personality</h2>
-        <label class="select-label" for="personalitySelect" data-i18n="label.personality">Response Style</label>
-        <select id="personalitySelect">
+      <!-- AI personality / settings card -->
+      <div class="card settings-card">
+        <div class="card-header">
+          <span class="card-title" data-i18n="section.personality">AI Settings</span>
+        </div>
+        <label class="field-label" data-i18n="label.personality">Response Style</label>
+        <select id="personalitySelect" class="field-select">
           <option value="professional" data-i18n="personality.professional">Professional / Tactical</option>
           <option value="conversational" data-i18n="personality.conversational">Conversational Wingman</option>
           <option value="instructor">Instructor Pilot</option>
           <option value="rio">RIO / WSO</option>
         </select>
 
-        <label class="select-label" for="skinSelect">Aircraft Skin</label>
-        <select id="skinSelect">
-          <option value="default">Nimbus Default</option>
-          <option value="f16">F-16 Viper</option>
-          <option value="f18">F/A-18 Hornet</option>
-          <option value="f15">F-15 Eagle</option>
-          <option value="su27">Su-27 Flanker</option>
-          <option value="mig29">MiG-29 Fulcrum</option>
-          <option value="su57">Su-57 Felon</option>
-          <option value="f22">F-22 Raptor</option>
+        <label class="field-label">HOTAS Preset</label>
+        <select id="joystickPresetSelect" class="field-select">
+          <option value="">Current config</option>
         </select>
+        <p id="joystickPresetHint" class="hint"></p>
 
-        <label class="select-label" for="joystickPresetSelect">Joystick / HOTAS Preset</label>
-        <select id="joystickPresetSelect">
-          <option value="">Manual / current settings</option>
-        </select>
-        <p id="joystickPresetHint" class="muted small">Preset selection updates the runtime PTT binding without restarting Nimbus.</p>
-      </article>
+        <!-- Context window (collapsed by default) -->
+        <details class="context-details">
+          <summary class="context-summary" data-i18n="section.context">Context Window</summary>
+          <pre id="contextBox" class="context-box">Waiting for telemetry…</pre>
+        </details>
+      </div>
+    </aside>
 
-      <article class="glass panel span-2">
-        <h2 data-i18n="section.context">Context Window</h2>
-        <pre id="contextBox" class="context-box">Waiting for telemetry...</pre>
-      </article>
-    </section>
-  </main>
+    <!-- MAIN COLUMN -->
+    <main class="main-col">
+
+      <!-- PTT / connection bar -->
+      <div class="action-bar card">
+        <div class="action-left">
+          <button id="connectBtn" class="btn btn-primary" data-i18n="button.connect_webrtc">
+            <span class="btn-icon">📡</span> Connect mic
+          </button>
+          <button id="pttStartBtn" class="btn btn-ptt" data-i18n="button.ptt_start">
+            <span class="btn-icon">🎙</span> PTT On
+          </button>
+          <button id="pttStopBtn" class="btn btn-outline" data-i18n="button.ptt_stop">
+            PTT Off
+          </button>
+        </div>
+        <audio id="remoteAudio" autoplay></audio>
+        <div id="pttIndicator" class="ptt-ring" aria-hidden="true"></div>
+      </div>
+
+      <!-- Conversation chat -->
+      <div class="card chat-card">
+        <div class="card-header">
+          <span class="card-title" data-i18n="section.conversation">Conversation</span>
+          <button id="clearBtn" class="btn-ghost" title="Clear log" data-i18n="button.clear">Clear</button>
+        </div>
+        <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
+        <form id="manualForm" class="chat-input-row">
+          <input
+            id="manualText"
+            type="text"
+            class="chat-input"
+            data-i18n-placeholder="manual.placeholder"
+            placeholder="Type a phrase to test…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="submit" class="btn btn-primary" data-i18n="button.send">Send</button>
+        </form>
+      </div>
+
+    </main>
+  </div>
+
   <script src="/web_ui/app.js"></script>
 </body>
 </html>
