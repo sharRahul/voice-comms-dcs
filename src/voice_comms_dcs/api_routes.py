@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -9,8 +10,8 @@ from typing import Any
 from aiohttp import WSMsgType, web
 
 from .dashboard_security import (
-    DashboardValidationError,
     DashboardSecurity,
+    DashboardValidationError,
     read_json_object,
     validate_language_payload,
     validate_settings_payload,
@@ -18,11 +19,14 @@ from .dashboard_security import (
 from .input_profiles import presets_as_api_payload
 from .language_models import SUPPORTED_LANGUAGES
 
+logger = logging.getLogger(__name__)
+
 
 class DashboardEventHub:
     """Broadcasts lightweight dashboard events to connected local web clients."""
 
-    def __init__(self) -> None:
+    def __init__(self, send_timeout_seconds: float = 1.0) -> None:
+        self.send_timeout_seconds = max(0.05, float(send_timeout_seconds))
         self._clients: set[web.WebSocketResponse] = set()
         self._lock = asyncio.Lock()
 
@@ -34,15 +38,25 @@ class DashboardEventHub:
         async with self._lock:
             self._clients.discard(ws)
 
+    async def _send_one(self, ws: web.WebSocketResponse, message: str) -> bool:
+        try:
+            await asyncio.wait_for(ws.send_str(message), timeout=self.send_timeout_seconds)
+            return True
+        except Exception:
+            await self.disconnect(ws)
+            logger.debug("dashboard_client_send_failed", exc_info=True)
+            return False
+
     async def broadcast(self, event: dict[str, Any]) -> None:
         message = json.dumps(event, default=str, ensure_ascii=False)
         async with self._lock:
             clients = list(self._clients)
-        for ws in clients:
-            try:
-                await ws.send_str(message)
-            except Exception:
-                await self.disconnect(ws)
+        if not clients:
+            return
+        await asyncio.gather(
+            *(self._send_one(ws, message) for ws in clients),
+            return_exceptions=True,
+        )
 
 
 def setup_dashboard_routes(
