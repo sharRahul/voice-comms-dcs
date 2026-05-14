@@ -9,7 +9,8 @@ from .config import VoiceCommand
 
 _WORD_RE = re.compile(r"[^a-z0-9 ]+")
 _CACHE_LOCK = Lock()
-_LAST_MATCH: object | None = None
+_CacheKey = tuple[str, tuple[tuple[str, tuple[str, ...]], ...], float]
+_LAST_MATCH: tuple[_CacheKey, MatchResult | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -126,7 +127,7 @@ def _cache_key(
     transcript: str,
     commands: tuple[VoiceCommand, ...],
     min_confidence: float,
-) -> tuple[str, tuple[tuple[str, tuple[str, ...]], ...], float]:
+) -> _CacheKey:
     return (normalise_text(transcript), _commands_key(commands), float(min_confidence))
 
 
