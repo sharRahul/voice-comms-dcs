@@ -12,6 +12,8 @@ class PiperVoiceSpec:
     model_url: str
     config_url: str
     source: str
+    model_sha256: str | None = None
+    config_sha256: str | None = None
     license_note: str = "See upstream MODEL_CARD or repository license."
 
 
@@ -21,6 +23,7 @@ class WhisperModelSpec:
     model_path: str
     url: str
     multilingual: bool
+    sha256: str | None = None
 
 
 SUPPORTED_LANGUAGES = {
@@ -42,34 +45,42 @@ WHISPER_LANGUAGE_CODES = {
     "es": "es",
 }
 
+# SHA256 values remain None until they are sourced from an upstream checksum or a reviewed
+# release manifest generated from a trusted first download. The downloader warns whenever a
+# model is fetched without a pinned SHA256; do not invent hash values for these binary assets.
 WHISPER_MODELS = {
     "tiny.en": WhisperModelSpec(
         key="tiny.en",
         model_path="models/whisper/ggml-tiny.en.bin",
         url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
         multilingual=False,
+        sha256=None,
     ),
     "base.en": WhisperModelSpec(
         key="base.en",
         model_path="models/whisper/ggml-base.en.bin",
         url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
         multilingual=False,
+        sha256=None,
     ),
     "tiny": WhisperModelSpec(
         key="tiny",
         model_path="models/whisper/ggml-tiny.bin",
         url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
         multilingual=True,
+        sha256=None,
     ),
     "base": WhisperModelSpec(
         key="base",
         model_path="models/whisper/ggml-base.bin",
         url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
         multilingual=True,
+        sha256=None,
     ),
 }
 
 # Piper voice URLs use /resolve/main/ so the downloader receives the actual file.
+# Hashes are intentionally left empty until reviewed and pinned in a release manifest.
 PIPER_VOICES: dict[str, PiperVoiceSpec] = {
     "en": PiperVoiceSpec(
         language="en",
@@ -79,6 +90,8 @@ PIPER_VOICES: dict[str, PiperVoiceSpec] = {
         model_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/en_US-lessac-low.onnx",
         config_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/low/en_US-lessac-low.onnx.json",
         source="rhasspy/piper-voices",
+        model_sha256=None,
+        config_sha256=None,
     ),
     "zh": PiperVoiceSpec(
         language="zh",
@@ -88,6 +101,8 @@ PIPER_VOICES: dict[str, PiperVoiceSpec] = {
         model_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx",
         config_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/zh/zh_CN/huayan/x_low/zh_CN-huayan-x_low.onnx.json",
         source="rhasspy/piper-voices",
+        model_sha256=None,
+        config_sha256=None,
     ),
     "ko": PiperVoiceSpec(
         language="ko",
@@ -97,6 +112,8 @@ PIPER_VOICES: dict[str, PiperVoiceSpec] = {
         model_url="https://huggingface.co/neurlang/piper-onnx-kss-korean/resolve/main/piper-kss-korean.onnx",
         config_url="https://huggingface.co/neurlang/piper-onnx-kss-korean/resolve/main/piper-kss-korean.onnx.json",
         source="neurlang/piper-onnx-kss-korean",
+        model_sha256=None,
+        config_sha256=None,
         license_note="Non-official Piper-compatible Korean voice; upstream lists CC-BY-NC-SA-4.0.",
     ),
     "fr": PiperVoiceSpec(
@@ -107,6 +124,8 @@ PIPER_VOICES: dict[str, PiperVoiceSpec] = {
         model_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/low/fr_FR-siwis-low.onnx",
         config_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/low/fr_FR-siwis-low.onnx.json",
         source="rhasspy/piper-voices",
+        model_sha256=None,
+        config_sha256=None,
     ),
     "ru": PiperVoiceSpec(
         language="ru",
@@ -116,6 +135,8 @@ PIPER_VOICES: dict[str, PiperVoiceSpec] = {
         model_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/ruslan/medium/ru_RU-ruslan-medium.onnx",
         config_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/ruslan/medium/ru_RU-ruslan-medium.onnx.json",
         source="rhasspy/piper-voices",
+        model_sha256=None,
+        config_sha256=None,
     ),
     "es": PiperVoiceSpec(
         language="es",
@@ -125,6 +146,8 @@ PIPER_VOICES: dict[str, PiperVoiceSpec] = {
         model_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/mls_9972/low/es_ES-mls_9972-low.onnx",
         config_url="https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_ES/mls_9972/low/es_ES-mls_9972-low.onnx.json",
         source="rhasspy/piper-voices",
+        model_sha256=None,
+        config_sha256=None,
     ),
 }
 
