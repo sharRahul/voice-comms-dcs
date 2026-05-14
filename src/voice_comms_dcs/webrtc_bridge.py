@@ -270,8 +270,8 @@ class WebRtcBridge:
             joystick_preset_setter=self.set_joystick_preset,
             security=self.security,
         )
-        self.app.on_startup.append(self._on_startup)
-        self.app.on_cleanup.append(self._on_cleanup)
+        self.app.on_startup.append(self._on_startup)  # type: ignore[arg-type]
+        self.app.on_cleanup.append(self._on_cleanup)  # type: ignore[arg-type]
 
     def _handle_telemetry(self, telemetry: dict[str, Any]) -> None:
         normalised = self.rwr_registry.normalise_telemetry(telemetry, self.rwr_profile)

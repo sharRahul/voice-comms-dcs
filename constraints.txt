@@ -7,7 +7,7 @@ sounddevice==0.4.6
 vosk==0.3.45
 pyinstaller==6.6.0
 aiortc==1.9.0
-aiohttp==3.9.5
+aiohttp==3.13.4
 websockets==12.0
 av==12.0.0
 numpy==1.26.4
@@ -21,7 +21,7 @@ pynput==1.7.6
 whisper-cpp-python==0.2.0
 
 # Development and audit tooling pins used by requirements-dev.txt.
-pytest==8.3.5
+pytest==9.0.3
 pytest-cov==6.0.0
 mypy==1.15.0
 ruff==0.9.10

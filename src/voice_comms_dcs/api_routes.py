@@ -31,7 +31,6 @@ class DashboardEventHub:
         self.privacy: DashboardPrivacyConfig | None = None
         self._clients: set[web.WebSocketResponse] = set()
         self._lock = asyncio.Lock()
-        self.privacy: DashboardPrivacyConfig | None = None
 
     async def connect(self, ws: web.WebSocketResponse) -> None:
         async with self._lock:

@@ -4,7 +4,7 @@ pyinstaller>=6.6.0
 
 # Phase 2 local-first conversational cockpit dependencies
 aiortc>=1.9.0
-aiohttp>=3.9.5
+aiohttp>=3.13.4
 websockets>=12.0
 av>=12.0.0
 numpy>=1.26.4

@@ -1,6 +1,6 @@
 # Development/test/audit tooling. Install with constraints for reproducibility:
 #   python -m pip install -r requirements-dev.txt -c constraints.txt
-pytest==8.3.5
+pytest==9.0.3
 pytest-cov==6.0.0
 mypy==1.15.0
 ruff==0.9.10
