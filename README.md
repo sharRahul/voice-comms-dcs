@@ -15,8 +15,8 @@ flowchart LR
     K --> L[Piper voice output]
     K --> M[DCS UDP command bridge]
 
-flowchart LR
-	L[Installer language selection] --> M[Whisper STT Local speech-to-text] --> N[Nimbus LLM orchestration + command handler] --> O[Piper TTS Radio voice output]
+
+	S[Installer language selection] --> T[Whisper STT Local speech-to-text] --> N[Nimbus LLM orchestration + command handler] --> O[Piper TTS Radio voice output]
 	P[DCS World dcs_telemetry.lua hook] --> Q[Telemetry parser UDP 10 Hz → JSON context] --> N[Nimbus LLM orchestration + command handler] --> R[VoiceBridge DCS mission flags]
 ```
 
