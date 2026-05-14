@@ -4,12 +4,12 @@
       "owner": "mypy",
       "pattern": [
         {
-          "regexp": "^(.+):(\\d+):(\\d+): error: (.+)$",
+          "regexp": "^(.+):(\\d+):(\\d+): (error|warning): (.+)$",
           "file": 1,
           "line": 2,
           "column": 3,
-          "severity": "error",
-          "message": 4
+          "severity": 4,
+          "message": 5
         }
       ]
     }
