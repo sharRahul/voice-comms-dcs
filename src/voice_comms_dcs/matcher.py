@@ -3,10 +3,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from threading import Lock
 
 from .config import VoiceCommand
 
 _WORD_RE = re.compile(r"[^a-z0-9 ]+")
+_CACHE_LOCK = Lock()
+_LAST_MATCH: object | None = None
 
 
 @dataclass(frozen=True)
@@ -115,9 +118,47 @@ def _score_compiled(
     return SequenceMatcher(None, transcript, phrase).ratio()
 
 
+def _commands_key(commands: tuple[VoiceCommand, ...]) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return tuple((command.id, command.phrases) for command in commands)
+
+
+def _cache_key(
+    transcript: str,
+    commands: tuple[VoiceCommand, ...],
+    min_confidence: float,
+) -> tuple[str, tuple[tuple[str, tuple[str, ...]], ...], float]:
+    return (normalise_text(transcript), _commands_key(commands), float(min_confidence))
+
+
 def find_best_match(
     transcript: str,
     commands: tuple[VoiceCommand, ...],
     min_confidence: float,
 ) -> MatchResult | None:
-    return CommandMatcher.from_commands(commands).find_best_match(transcript, min_confidence)
+    global _LAST_MATCH
+    key = _cache_key(transcript, commands, min_confidence)
+    match = CommandMatcher.from_commands(commands).find_best_match(transcript, min_confidence)
+    with _CACHE_LOCK:
+        _LAST_MATCH = (key, match)
+    return match
+
+
+def consume_recent_match(
+    transcript: str,
+    commands: tuple[VoiceCommand, ...],
+    min_confidence: float,
+) -> MatchResult | None:
+    """Return and clear the previous top-level match for the same transcript/config.
+
+    Nimbus performs deterministic command detection before dispatching. This cache lets
+    VoiceCommsService reuse that result instead of fuzzy-matching the same transcript
+    again, while preserving handle_transcript compatibility for direct callers.
+    """
+    global _LAST_MATCH
+    key = _cache_key(transcript, commands, min_confidence)
+    with _CACHE_LOCK:
+        if _LAST_MATCH is None or _LAST_MATCH[0] != key:
+            return None
+        _cached_key, match = _LAST_MATCH
+        _LAST_MATCH = None
+        return match
