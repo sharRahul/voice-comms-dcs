@@ -5,7 +5,11 @@ param(
     [string]$ModelManifest = "build_output\model_manifest.json",
     [string]$CertificateThumbprint = $env:VCDCS_SIGN_CERT_THUMBPRINT,
     [string]$TimestampServer = "http://timestamp.digicert.com",
+    [string]$ManifestSigningTool = "minisign",
+    [string]$ManifestPrivateKey = $env:VCDCS_MANIFEST_MINISIGN_PRIVATE_KEY,
+    [string]$ManifestPublicKey = $env:VCDCS_MANIFEST_MINISIGN_PUBLIC_KEY,
     [switch]$SkipSigning,
+    [switch]$SkipManifestSigning,
     [switch]$VerifyOnly
 )
 
@@ -33,7 +37,7 @@ function Get-SignToolPath {
 function Sign-File {
     param([string]$Path)
     if ($SkipSigning) {
-        Write-Host "Skipping signing: $Path"
+        Write-Host "Skipping Authenticode signing: $Path"
         return
     }
     if (-not $CertificateThumbprint) {
@@ -49,6 +53,42 @@ function Verify-File {
     $signtool = Get-SignToolPath
     Write-Host "Verifying $Path"
     & $signtool verify /pa /v $Path
+}
+
+function Invoke-ManifestSignature {
+    param(
+        [string]$Path,
+        [switch]$Verify
+    )
+
+    if ($SkipManifestSigning) {
+        Write-Host "Skipping detached manifest signature: $Path"
+        return
+    }
+
+    if ($ManifestSigningTool -ne "minisign") {
+        throw "Unsupported manifest signing tool '$ManifestSigningTool'. Supported value: minisign."
+    }
+
+    $tool = Get-Command minisign -ErrorAction SilentlyContinue
+    if (-not $tool) {
+        throw "minisign not found. Install minisign or pass -SkipManifestSigning for local development."
+    }
+
+    if ($Verify) {
+        if (-not $ManifestPublicKey) {
+            throw "Manifest public key missing. Set VCDCS_MANIFEST_MINISIGN_PUBLIC_KEY or pass -ManifestPublicKey."
+        }
+        Write-Host "Verifying detached manifest signature: $Path"
+        & $tool.Source -Vm $Path -p $ManifestPublicKey
+        return
+    }
+
+    if (-not $ManifestPrivateKey) {
+        throw "Manifest private key missing. Set VCDCS_MANIFEST_MINISIGN_PRIVATE_KEY or pass -ManifestPrivateKey."
+    }
+    Write-Host "Signing manifest: $Path"
+    & $tool.Source -Sm $Path -s $ManifestPrivateKey
 }
 
 $targets = @()
@@ -70,5 +110,13 @@ python -m voice_comms_dcs.release_manifest --output $Manifest
 python -m voice_comms_dcs.release_manifest --output $Manifest --verify
 python -m voice_comms_dcs.model_manifest --output $ModelManifest
 python -m voice_comms_dcs.model_manifest --output $ModelManifest --verify
+
+if ($VerifyOnly) {
+    Invoke-ManifestSignature -Path $Manifest -Verify
+    Invoke-ManifestSignature -Path $ModelManifest -Verify
+} else {
+    Invoke-ManifestSignature -Path $Manifest
+    Invoke-ManifestSignature -Path $ModelManifest
+}
 
 Write-Host "Release signing/checksum pass complete."

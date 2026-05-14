@@ -6,7 +6,6 @@ block_cipher = None
 project_root = Path.cwd()
 
 added_files = [
-    (str(project_root / "config" / "commands.json"), "config"),
     (str(project_root / "config" / "commands.example.json"), "config"),
     (str(project_root / "config" / "aircraft_profiles"), "config/aircraft_profiles"),
     (str(project_root / "config" / "i18n"), "config/i18n"),
@@ -19,9 +18,6 @@ added_files = [
     (str(project_root / "dcs_scripts" / "dcs_telemetry.lua"), "dcs_scripts"),
     (str(project_root / "dcs_scripts" / "Export.lua.append.example"), "dcs_scripts"),
     (str(project_root / "dcs_scripts" / "mission_trigger_example.lua"), "dcs_scripts"),
-    (str(project_root / "build" / "setup_whisper.ps1"), "build"),
-    (str(project_root / "build" / "setup_local_models.ps1"), "build"),
-    (str(project_root / "build" / "sign_release.ps1"), "build"),
     (str(project_root / "README.md"), "."),
     (str(project_root / "docs" / "architecture.md"), "docs"),
     (str(project_root / "docs" / "phase2_conversational_cockpit.md"), "docs"),
@@ -32,6 +28,9 @@ added_files = [
     (str(project_root / "docs" / "security_report.md"), "docs"),
     (str(project_root / "docs" / "installer_roadmap.md"), "docs"),
     (str(project_root / "docs" / "security_and_limitations.md"), "docs"),
+    (str(project_root / "docs" / "developer_setup.md"), "docs"),
+    (str(project_root / "docs" / "installer_hardening.md"), "docs"),
+    (str(project_root / "docs" / "release_signing.md"), "docs"),
 ]
 
 a = Analysis(

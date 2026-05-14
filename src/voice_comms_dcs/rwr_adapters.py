@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -34,57 +38,138 @@ DEFAULT_SEVERITY_ORDER = {
 }
 
 
+def _generic_profile() -> RwrAdapterProfile:
+    return RwrAdapterProfile(
+        id="generic",
+        label="Generic RWR",
+        aircraft=(),
+        mappings={
+            "SAM": RwrThreatMapping("SAM", "Surface-to-air threat", "sam", "spike"),
+            "AAA": RwrThreatMapping("AAA", "Anti-air artillery", "aaa", "track"),
+            "MSL": RwrThreatMapping("MSL", "Missile launch", "missile", "launch"),
+            "M": RwrThreatMapping("M", "Missile launch", "missile", "missile"),
+        },
+    )
+
+
+def default_registry() -> "RwrAdapterRegistry":
+    return RwrAdapterRegistry({"generic": _generic_profile()})
+
+
+def _ensure_generic_fallback(
+    profiles: dict[str, RwrAdapterProfile],
+) -> dict[str, RwrAdapterProfile]:
+    fallback = _generic_profile()
+    if "generic" not in profiles:
+        profiles["generic"] = fallback
+        return profiles
+
+    generic = profiles["generic"]
+    mappings = dict(fallback.mappings)
+    mappings.update(generic.mappings)
+    profiles["generic"] = RwrAdapterProfile(
+        id=generic.id or "generic",
+        label=generic.label or fallback.label,
+        aircraft=generic.aircraft,
+        mappings=mappings,
+    )
+    return profiles
+
+
 class RwrAdapterRegistry:
     """Normalises aircraft-specific RWR symbols into Nimbus threat fields."""
 
     def __init__(self, profiles: dict[str, RwrAdapterProfile]) -> None:
-        self.profiles = profiles
+        self.profiles = _ensure_generic_fallback(dict(profiles))
 
     @classmethod
     def from_json(cls, path: str | Path = "config/rwr/adapters.json") -> "RwrAdapterRegistry":
         file_path = Path(path)
         if not file_path.exists():
-            file_path = Path(__file__).resolve().parents[2] / "config" / "rwr" / "adapters.json"
-        data = json.loads(file_path.read_text(encoding="utf-8"))
+            logger.warning("RWR adapter registry missing at %s; using generic fallback.", path)
+            return default_registry()
+
+        try:
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("RWR adapter registry %s is unreadable; using generic fallback: %s", file_path, exc)
+            return default_registry()
+
         profiles: dict[str, RwrAdapterProfile] = {}
-        for raw in data.get("profiles", []):
+        raw_profiles = data.get("profiles", []) if isinstance(data, dict) else []
+        if not isinstance(raw_profiles, list):
+            logger.warning("RWR adapter registry %s has invalid profiles; using generic fallback.", file_path)
+            return default_registry()
+
+        for raw in raw_profiles:
+            if not isinstance(raw, dict):
+                logger.warning("Skipping invalid RWR profile entry in %s.", file_path)
+                continue
+            profile_id = str(raw.get("id", "")).strip()
+            if not profile_id:
+                logger.warning("Skipping RWR profile without an id in %s.", file_path)
+                continue
+
             mappings: dict[str, RwrThreatMapping] = {}
-            for symbol, mapping in raw.get("mappings", {}).items():
-                mappings[str(symbol).upper()] = RwrThreatMapping(
-                    symbol=str(symbol).upper(),
-                    label=str(mapping.get("label", symbol)),
-                    threat_type=str(mapping.get("threat_type", "unknown")),
-                    severity=str(mapping.get("severity", "search")).lower(),
-                )
-            profile = RwrAdapterProfile(
-                id=str(raw["id"]),
-                label=str(raw.get("label", raw["id"])),
-                aircraft=tuple(str(item).lower() for item in raw.get("aircraft", [])),
+            raw_mappings = raw.get("mappings", {})
+            if isinstance(raw_mappings, dict):
+                for symbol, mapping in raw_mappings.items():
+                    if not isinstance(mapping, dict):
+                        logger.warning("Skipping invalid RWR mapping %s in profile %s.", symbol, profile_id)
+                        continue
+                    normalised_symbol = str(symbol).upper()
+                    mappings[normalised_symbol] = RwrThreatMapping(
+                        symbol=normalised_symbol,
+                        label=str(mapping.get("label", symbol)),
+                        threat_type=str(mapping.get("threat_type", "unknown")),
+                        severity=str(mapping.get("severity", "search")).lower(),
+                    )
+
+            raw_aircraft = raw.get("aircraft", [])
+            aircraft = (
+                tuple(str(item).lower() for item in raw_aircraft)
+                if isinstance(raw_aircraft, list)
+                else ()
+            )
+            profiles[profile_id] = RwrAdapterProfile(
+                id=profile_id,
+                label=str(raw.get("label", profile_id)),
+                aircraft=aircraft,
                 mappings=mappings,
             )
-            profiles[profile.id] = profile
+
+        if not profiles:
+            logger.warning("RWR adapter registry %s had no valid profiles; using generic fallback.", file_path)
+            return default_registry()
         return cls(profiles)
 
     def resolve_profile_id(self, telemetry: dict[str, Any], preferred_profile: str | None = None) -> str:
         if preferred_profile and preferred_profile in self.profiles:
             return preferred_profile
-        aircraft = str(telemetry.get("aircraft", {}).get("type", "")).lower()
+        aircraft_payload = telemetry.get("aircraft", {}) if isinstance(telemetry, dict) else {}
+        aircraft = str(aircraft_payload.get("type", "") if isinstance(aircraft_payload, dict) else "").lower()
         for profile in self.profiles.values():
             if aircraft and aircraft in profile.aircraft:
                 return profile.id
         return "generic"
 
     def normalise_telemetry(self, telemetry: dict[str, Any], preferred_profile: str | None = None) -> dict[str, Any]:
+        if not isinstance(telemetry, dict):
+            return {"tactical": {"rwr_alerts": [], "rwr_profile": "generic", "rwr_summary": "No RWR threats"}}
+
         profile_id = self.resolve_profile_id(telemetry, preferred_profile)
         profile = self.profiles.get(profile_id) or self.profiles.get("generic")
         if profile is None:
             return telemetry
 
         normalised = dict(telemetry)
-        tactical = dict(normalised.get("tactical", {}))
+        tactical_raw = normalised.get("tactical", {})
+        tactical = dict(tactical_raw) if isinstance(tactical_raw, dict) else {}
         alerts = tactical.get("rwr_alerts", [])
         if not isinstance(alerts, list):
             tactical["rwr_alerts"] = []
+            tactical["rwr_profile"] = profile.id
+            tactical["rwr_summary"] = "No RWR threats"
             normalised["tactical"] = tactical
             return normalised
 
@@ -99,7 +184,8 @@ class RwrAdapterRegistry:
         symbol = str(alert.get("symbol", alert.get("threat_type", ""))).upper()
         mapping = profile.mappings.get(symbol)
         if mapping is None:
-            mapping = self.profiles.get("generic", profile).mappings.get(symbol) if "generic" in self.profiles else None
+            generic = self.profiles.get("generic", profile)
+            mapping = generic.mappings.get(symbol)
 
         enriched = dict(alert)
         enriched["symbol"] = symbol or str(alert.get("threat_type", "unknown")).upper()

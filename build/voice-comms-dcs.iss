@@ -28,7 +28,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
-Name: "installlua"; Description: "Automatically install DCS Lua bridge and telemetry exporter"; GroupDescription: "DCS integration:"; Flags: checkedonce
+Name: "installlua"; Description: "Install DCS Lua bridge now. This modifies Saved Games Scripts\Export.lua after creating a backup; you can also run it later from the CLI."; GroupDescription: "DCS integration:"; Flags: unchecked
 Name: "downloadmodels"; Description: "Download local AI models after installation"; GroupDescription: "Local AI models:"; Flags: checkedonce
 Name: "lang\en"; Description: "English"; GroupDescription: "Install language models:"; Flags: checkedonce
 Name: "lang\zh"; Description: "Chinese"; GroupDescription: "Install language models:"
@@ -39,7 +39,6 @@ Name: "lang\es"; Description: "Spanish"; GroupDescription: "Install language mod
 
 [Files]
 Source: "..\dist\Voice-Comms-DCS\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\config\commands.json"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "..\config\commands.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "..\config\aircraft_profiles\*"; DestDir: "{app}\config\aircraft_profiles"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\config\i18n\*"; DestDir: "{app}\config\i18n"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -52,9 +51,6 @@ Source: "..\dcs_scripts\VoiceBridge.lua"; DestDir: "{app}\dcs_scripts"; Flags: i
 Source: "..\dcs_scripts\dcs_telemetry.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\Export.lua.append.example"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
 Source: "..\dcs_scripts\mission_trigger_example.lua"; DestDir: "{app}\dcs_scripts"; Flags: ignoreversion
-Source: "..\build\setup_whisper.ps1"; DestDir: "{app}\build"; Flags: ignoreversion
-Source: "..\build\setup_local_models.ps1"; DestDir: "{app}\build"; Flags: ignoreversion
-Source: "..\build\sign_release.ps1"; DestDir: "{app}\build"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\architecture.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\phase2_conversational_cockpit.md"; DestDir: "{app}\docs"; Flags: ignoreversion
@@ -65,6 +61,9 @@ Source: "..\docs\runtime_benchmark_tuning.md"; DestDir: "{app}\docs"; Flags: ign
 Source: "..\docs\security_report.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\installer_roadmap.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\docs\security_and_limitations.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\developer_setup.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\installer_hardening.md"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\docs\release_signing.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -98,7 +97,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    Log('Voice-Comms-DCS installed. Smart Lua bridge installer, model downloader, RWR/SRS configs, and benchmark tooling have been configured.');
+    Log('Voice-Comms-DCS installed. Lua bridge installation is opt-in; model downloader, RWR/SRS configs, and benchmark tooling have been configured.');
     Log('Selected languages: ' + SelectedLanguageArgs(''));
   end;
 end;
