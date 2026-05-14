@@ -28,6 +28,14 @@ dependencies = [
   "whisper-cpp-python>=0.2.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+  "pip-audit",
+  "build"
+]
+
 [project.scripts]
 voice-comms-dcs = "voice_comms_dcs.main:main"
 voice-comms-dcs-webrtc = "voice_comms_dcs.webrtc_bridge:main"
