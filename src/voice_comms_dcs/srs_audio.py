@@ -19,6 +19,7 @@ class SrsAudioConfig:
     modulation: str = "AM"
     coalition: str = "blue"
     command_template: list[str] | None = None
+    timeout_seconds: float = 10.0
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,8 @@ class SrsExternalAudioAdapter:
         file_path = Path(path)
         defaults = SrsAudioConfig()
         data = json.loads(file_path.read_text(encoding="utf-8")) if file_path.exists() else {}
+        template_data = data.get("command_template", DEFAULT_COMMAND_TEMPLATE)
+        command_template = template_data if isinstance(template_data, list) else DEFAULT_COMMAND_TEMPLATE
         return cls(
             SrsAudioConfig(
                 enabled=bool(data.get("enabled", defaults.enabled)),
@@ -74,7 +77,8 @@ class SrsExternalAudioAdapter:
                 frequency_mhz=float(data.get("frequency_mhz", defaults.frequency_mhz)),
                 modulation=str(data.get("modulation", defaults.modulation)).upper(),
                 coalition=str(data.get("coalition", defaults.coalition)).lower(),
-                command_template=list(data.get("command_template", DEFAULT_COMMAND_TEMPLATE)),
+                command_template=list(command_template),
+                timeout_seconds=float(data.get("timeout_seconds", defaults.timeout_seconds)),
             )
         )
 
@@ -107,7 +111,26 @@ class SrsExternalAudioAdapter:
             )
 
         command = self._build_command(audio_file)
-        process = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+        try:
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+                timeout=self.config.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            return SrsDispatchResult(
+                enabled=True,
+                audio_file=audio_file,
+                command=tuple(command),
+                returncode=None,
+                stdout="",
+                stderr="",
+                message="SRS external audio command timed out.",
+            )
         return SrsDispatchResult(
             enabled=True,
             audio_file=audio_file,
