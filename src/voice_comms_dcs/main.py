@@ -50,8 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
 def _write_model_manifest(root: Path, output: Path) -> None:
     from .model_manifest import build_model_manifest, write_model_manifest
 
-    manifest = build_model_manifest(root=root)
-    write_model_manifest(manifest, output)
+    model_manifest = build_model_manifest(root=root)
+    write_model_manifest(model_manifest, output)
     print(f"Wrote {output}")
 
 
@@ -70,22 +70,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(message)
             return 0
         results = install_lua_bridge(Path(args.dcs_source_dir), targets=targets, dry_run=args.dry_run)
-        for result in results:
-            print(f"{result.target.root}: {result.message}")
-            if result.backup_path:
-                print(f"  backup: {result.backup_path}")
+        for install_result in results:
+            print(f"{install_result.target.root}: {install_result.message}")
+            if install_result.backup_path:
+                print(f"  backup: {install_result.backup_path}")
         return 0
 
     if args.setup_dependencies_ui:
         from .dependency_setup_ui import DependencySetupUi
 
-        app = DependencySetupUi(
+        dependency_setup_app = DependencySetupUi(
             languages=validate_languages(args.languages or ["en"]),
             ollama_model=args.ollama_model,
             whisper_quality=args.whisper_quality,
         )
-        app.mainloop()
-        return 1 if app.failed else 0
+        dependency_setup_app.mainloop()
+        return 1 if dependency_setup_app.failed else 0
 
     if args.setup_dependencies or args.remove_dependencies:
         languages = validate_languages(args.languages or ["en"])
@@ -130,8 +130,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Manifest verified: {output}")
             return 0 if ok else 1
-        manifest = build_manifest(default_release_paths(root), root=root)
-        write_manifest(manifest, output)
+        release_manifest = build_manifest(default_release_paths(root), root=root)
+        write_manifest(release_manifest, output)
         print(f"Wrote {output}")
         return 0
 
@@ -148,8 +148,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Model manifest verified: {output}")
             return 0 if ok else 1
-        manifest = build_model_manifest(root=root)
-        write_model_manifest(manifest, output)
+        model_manifest = build_model_manifest(root=root)
+        write_model_manifest(model_manifest, output)
         print(f"Wrote {output}")
         return 0
 
@@ -163,25 +163,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.test_phrase:
         service = VoiceCommsService(config)
         try:
-            result = service.handle_transcript(args.test_phrase)
+            dispatch_result = service.handle_transcript(args.test_phrase)
         finally:
             service.close()
 
-        if not result.matched:
-            print(f"No match: {result.reason}")
+        if not dispatch_result.matched:
+            print(f"No match: {dispatch_result.reason}")
             return 1
 
-        assert result.match is not None
+        assert dispatch_result.match is not None
         print(
             "Matched "
-            f"{result.match.command.id} "
-            f"confidence={result.match.confidence:.2f} "
-            f"payload={result.payload}"
+            f"{dispatch_result.match.command.id} "
+            f"confidence={dispatch_result.match.confidence:.2f} "
+            f"payload={dispatch_result.payload}"
         )
         return 0
 
-    app = VoiceCommsUi(config=config, config_path=str(config_path))
-    app.mainloop()
+    ui_app = VoiceCommsUi(config=config, config_path=str(config_path))
+    ui_app.mainloop()
     return 0
 
 
