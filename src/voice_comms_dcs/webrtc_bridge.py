@@ -125,6 +125,8 @@ class NimbusAudioTrack(AudioStreamTrack):
         with av.open(str(path)) as container:
             stream = next(s for s in container.streams if s.type == "audio")
             for frame in container.decode(stream):
+                if not isinstance(frame, av.AudioFrame):
+                    continue
                 samples = audio_frame_to_float_mono(frame)
                 if frame.sample_rate != AUDIO_SAMPLE_RATE:
                     samples = linear_resample(samples, frame.sample_rate, AUDIO_SAMPLE_RATE)
@@ -369,7 +371,7 @@ class WebRtcBridge:
         return {
             "active": self.audio_buffer.recording,
             "active_seconds": self.audio_buffer.active_seconds,
-            "max_context_ms": self.audio_buffer.max_context_ms,
+            "max_context_ms": self.audio_buffer.max_context_samples,
             "source": self._ptt_source,
             "last_transcript": self._last_transcript,
             "last_stt_latency_seconds": self._last_stt_latency,
