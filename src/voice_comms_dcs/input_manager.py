@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import queue
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
@@ -18,6 +19,9 @@ try:
     from pynput import keyboard
 except Exception:  # pragma: no cover - optional runtime dependency diagnostics
     keyboard = None  # type: ignore[assignment]
+
+
+logger = logging.getLogger(__name__)
 
 
 class PttEventType(str, Enum):
@@ -53,6 +57,17 @@ class InputManagerConfig:
     poll_hz: float = 60.0
 
 
+@dataclass(frozen=True)
+class InputDiagnostics:
+    joystick_available: bool = False
+    keyboard_available: bool = False
+    last_error: str = ""
+    last_error_code: str = ""
+    last_error_at: float = 0.0
+    joystick_name: str = ""
+    joystick_button_count: int = 0
+
+
 PttCallback = Callable[[PttEvent], None]
 
 
@@ -64,6 +79,8 @@ class InputManager:
     not require the Python window to have focus.
     """
 
+    _ERROR_LOG_INTERVAL_SECONDS = 10.0
+
     def __init__(self, config: InputManagerConfig | None = None) -> None:
         self.config = config or InputManagerConfig()
         self.events: queue.Queue[PttEvent] = queue.Queue()
@@ -73,11 +90,17 @@ class InputManager:
         self._keyboard_listener: Any | None = None
         self._ptt_active = False
         self._lock = threading.Lock()
+        self._diagnostics = InputDiagnostics()
+        self._last_error_logs: dict[str, float] = {}
 
     @property
     def ptt_active(self) -> bool:
         with self._lock:
             return self._ptt_active
+
+    def diagnostics(self) -> InputDiagnostics:
+        with self._lock:
+            return self._diagnostics
 
     def subscribe(self, callback: PttCallback) -> None:
         self._callbacks.append(callback)
@@ -94,7 +117,15 @@ class InputManager:
     def stop(self) -> None:
         self._stop.set()
         if self._keyboard_listener is not None:
-            self._keyboard_listener.stop()
+            try:
+                self._keyboard_listener.stop()
+            except Exception:
+                self._record_error(
+                    "keyboard_stop_failed",
+                    "Keyboard listener failed to stop cleanly.",
+                    exc_info=True,
+                    level=logging.WARNING,
+                )
             self._keyboard_listener = None
         for thread in self._threads:
             thread.join(timeout=1.0)
@@ -104,7 +135,40 @@ class InputManager:
                 pygame.joystick.quit()
                 pygame.quit()
             except Exception:
-                pass
+                self._record_error(
+                    "pygame_shutdown_failed",
+                    "Pygame joystick subsystem failed to stop cleanly.",
+                    exc_info=True,
+                    level=logging.DEBUG,
+                )
+
+    def _update_diagnostics(self, **changes: Any) -> None:
+        with self._lock:
+            self._diagnostics = replace(self._diagnostics, **changes)
+
+    def _record_error(
+        self,
+        code: str,
+        message: str,
+        *,
+        exc_info: bool = False,
+        level: int = logging.WARNING,
+    ) -> None:
+        now = time.monotonic()
+        should_log = False
+        with self._lock:
+            last_logged = self._last_error_logs.get(code, 0.0)
+            if now - last_logged >= self._ERROR_LOG_INTERVAL_SECONDS:
+                self._last_error_logs[code] = now
+                should_log = True
+            self._diagnostics = replace(
+                self._diagnostics,
+                last_error=message,
+                last_error_code=code,
+                last_error_at=now,
+            )
+        if should_log:
+            logger.log(level, "%s: %s", code, message, exc_info=exc_info)
 
     def _publish(self, event_type: PttEventType, source: str, detail: str = "") -> None:
         with self._lock:
@@ -120,15 +184,33 @@ class InputManager:
             try:
                 callback(event)
             except Exception:
-                continue
+                self._record_error(
+                    "callback_error",
+                    "PTT callback raised unexpectedly.",
+                    exc_info=True,
+                    level=logging.ERROR,
+                )
 
     def _joystick_loop(self) -> None:
         if pygame is None:
+            self._record_error(
+                "joystick_pygame_unavailable",
+                "Joystick support is unavailable because pygame could not be imported.",
+                level=logging.WARNING,
+            )
+            self._update_diagnostics(joystick_available=False)
             return
         try:
             pygame.init()
             pygame.joystick.init()
         except Exception:
+            self._record_error(
+                "joystick_init_failed",
+                "Joystick subsystem failed to initialise.",
+                exc_info=True,
+                level=logging.WARNING,
+            )
+            self._update_diagnostics(joystick_available=False)
             return
 
         binding = self.config.joystick
@@ -142,12 +224,36 @@ class InputManager:
                 if joystick is None and count > binding.joystick_index:
                     joystick = pygame.joystick.Joystick(binding.joystick_index)
                     joystick.init()
+                    self._update_diagnostics(
+                        joystick_available=True,
+                        joystick_name=str(joystick.get_name()),
+                        joystick_button_count=int(joystick.get_numbuttons()),
+                    )
+                    logger.info(
+                        "Joystick PTT device ready: index=%s name=%s buttons=%s",
+                        binding.joystick_index,
+                        joystick.get_name(),
+                        joystick.get_numbuttons(),
+                    )
                 if joystick is None:
+                    self._update_diagnostics(joystick_available=False)
+                    self._record_error(
+                        "joystick_not_found",
+                        "Configured joystick was not found.",
+                        level=logging.DEBUG,
+                    )
                     time.sleep(1.0)
                     continue
 
                 pygame.event.pump()
-                if joystick.get_numbuttons() <= binding.button_index:
+                button_count = joystick.get_numbuttons()
+                if button_count <= binding.button_index:
+                    self._update_diagnostics(joystick_button_count=int(button_count))
+                    self._record_error(
+                        "joystick_button_missing",
+                        "Configured joystick button does not exist on the selected device.",
+                        level=logging.DEBUG,
+                    )
                     time.sleep(poll_delay)
                     continue
 
@@ -166,11 +272,23 @@ class InputManager:
                     )
                 last_state = state
             except Exception:
+                self._record_error(
+                    "joystick_poll_failed",
+                    "Joystick polling failed.",
+                    exc_info=True,
+                    level=logging.DEBUG,
+                )
                 time.sleep(0.5)
             time.sleep(poll_delay)
 
     def _start_keyboard_listener(self) -> None:
         if keyboard is None:
+            self._record_error(
+                "keyboard_unavailable",
+                "Keyboard support is unavailable because pynput could not be imported.",
+                level=logging.WARNING,
+            )
+            self._update_diagnostics(keyboard_available=False)
             return
         target_key = _parse_key(self.config.keyboard.hotkey)
 
@@ -182,8 +300,18 @@ class InputManager:
             if _key_matches(key, target_key):
                 self._publish(PttEventType.STOP_PTT, "keyboard", self.config.keyboard.hotkey)
 
-        self._keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-        self._keyboard_listener.start()
+        try:
+            self._keyboard_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+            self._keyboard_listener.start()
+            self._update_diagnostics(keyboard_available=True)
+        except Exception:
+            self._record_error(
+                "keyboard_listener_failed",
+                "Keyboard listener failed to start.",
+                exc_info=True,
+                level=logging.WARNING,
+            )
+            self._update_diagnostics(keyboard_available=False)
 
 
 def _parse_key(name: str) -> Any:
@@ -212,23 +340,28 @@ def _key_matches(key: Any, target: Any) -> bool:
 
 def list_joysticks() -> list[dict[str, Any]]:
     if pygame is None:
+        logger.warning("Joystick listing requested but pygame is unavailable.")
         return []
-    pygame.init()
-    pygame.joystick.init()
-    devices: list[dict[str, Any]] = []
-    for index in range(pygame.joystick.get_count()):
-        js = pygame.joystick.Joystick(index)
-        js.init()
-        devices.append(
-            {
-                "index": index,
-                "name": js.get_name(),
-                "buttons": js.get_numbuttons(),
-                "axes": js.get_numaxes(),
-                "hats": js.get_numhats(),
-            }
-        )
-    return devices
+    try:
+        pygame.init()
+        pygame.joystick.init()
+        devices: list[dict[str, Any]] = []
+        for index in range(pygame.joystick.get_count()):
+            js = pygame.joystick.Joystick(index)
+            js.init()
+            devices.append(
+                {
+                    "index": index,
+                    "name": js.get_name(),
+                    "buttons": js.get_numbuttons(),
+                    "axes": js.get_numaxes(),
+                    "hats": js.get_numhats(),
+                }
+            )
+        return devices
+    except Exception:
+        logger.exception("Failed to list joystick devices.")
+        return []
 
 
 def main(argv: list[str] | None = None) -> int:
