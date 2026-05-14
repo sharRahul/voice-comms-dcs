@@ -107,7 +107,7 @@ class SrsExternalAudioAdapter:
             return SrsDispatchResult(
                 enabled=True,
                 audio_file=audio_file,
-                message=f"SRS external audio executable not found: {exe}",
+                message="SRS external audio executable not found.",
             )
 
         command = self._build_command(audio_file)
