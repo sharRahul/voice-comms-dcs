@@ -17,7 +17,7 @@ from aiortc.mediastreams import AudioStreamTrack, MediaStreamError, MediaStreamT
 
 from .aircraft_profiles import AircraftProfile, load_aircraft_profile
 from .api_routes import DashboardEventHub, setup_dashboard_routes
-from .config import load_config
+from .config import load_config, resolve_bridge_runtime_config
 from .context_manager import ContextManager
 from .dashboard_security import (
     DashboardSecurity,
@@ -140,19 +140,19 @@ class WebRtcBridge:
     def __init__(
         self,
         config_path: str,
-        host: str = "127.0.0.1",
-        port: int = 8765,
-        telemetry_host: str = "127.0.0.1",
-        telemetry_port: int = 10309,
+        host: str | None = None,
+        port: int | None = None,
+        telemetry_host: str | None = None,
+        telemetry_port: int | None = None,
         aircraft_profile_path: str | None = "config/aircraft_profiles/default.json",
         whisper_model_path: str | None = None,
-        whisper_engine: str = "auto",
-        whisper_cli_exe: str = "whisper-cli",
-        ptt_hotkey: str = "right_ctrl",
-        joystick_index: int = 0,
-        joystick_button: int = 1,
+        whisper_engine: str | None = None,
+        whisper_cli_exe: str | None = None,
+        ptt_hotkey: str | None = None,
+        joystick_index: int | None = None,
+        joystick_button: int | None = None,
         joystick_profile: str | None = None,
-        enable_input_manager: bool = True,
+        enable_input_manager: bool | None = None,
         language: str | None = None,
         personality: str = "professional",
         skin: str = "default",
@@ -165,19 +165,30 @@ class WebRtcBridge:
         allowed_origins: tuple[str, ...] = (),
     ) -> None:
         self.config_path = config_path
-        self.host = host
-        self.port = port
+        self.config = load_config(config_path)
+        self.runtime_config = resolve_bridge_runtime_config(
+            self.config,
+            host=host,
+            port=port,
+            telemetry_host=telemetry_host,
+            telemetry_port=telemetry_port,
+            ptt_hotkey=ptt_hotkey,
+            joystick_index=joystick_index,
+            joystick_button=joystick_button,
+            enable_input_manager=enable_input_manager,
+        )
+        self.host = self.runtime_config.host
+        self.port = self.runtime_config.port
         self.security = DashboardSecurity(
             DashboardSecurityConfig(
-                host=host,
-                port=port,
+                host=self.host,
+                port=self.port,
                 token=dashboard_token,
                 auth_enabled=dashboard_auth_enabled,
                 allow_lan=allow_lan,
                 allowed_origins=allowed_origins,
             )
         )
-        self.config = load_config(config_path)
         self._llm_timeout_seconds = max(float(self.config.llm.timeout_seconds) + 1.0, 1.0)
         self.current_language = language or self.config.language.selected
         self.settings = DashboardSettings(personality=personality, skin=skin)
@@ -198,33 +209,41 @@ class WebRtcBridge:
         self.nimbus.set_language(self.current_language)
         self.radio_voice = self._create_radio_voice(self.current_language)
         self.telemetry = TelemetryListener(
-            host=telemetry_host,
-            port=telemetry_port,
+            host=self.runtime_config.telemetry_host,
+            port=self.runtime_config.telemetry_port,
             on_telemetry=self._handle_telemetry,
         )
-        self.whisper_engine_name = whisper_engine
-        self.whisper_cli_exe = whisper_cli_exe
+        self.whisper_engine_name = whisper_engine if whisper_engine is not None else self.config.stt.whisper_engine
+        self.whisper_cli_exe = whisper_cli_exe if whisper_cli_exe is not None else self.config.stt.cli_exe
         self.manual_whisper_model_path = whisper_model_path
         self.whisper_model_path = self._resolve_whisper_model_path(self.current_language)
         self.whisper = self._create_whisper(self.current_language, self.whisper_model_path)
-        self.audio_buffer = RollingAudioBuffer(sample_rate=WHISPER_SAMPLE_RATE, pre_roll_ms=500)
+        self.audio_buffer = RollingAudioBuffer(
+            sample_rate=WHISPER_SAMPLE_RATE,
+            pre_roll_ms=self.runtime_config.pre_roll_ms,
+            max_context_ms=self.runtime_config.max_context_ms,
+        )
         self.dashboard_events = DashboardEventHub()
         self.peer_connections: set[RTCPeerConnection] = set()
         self.audio_tracks: set[NimbusAudioTrack] = set()
-        self.enable_input_manager = enable_input_manager
         self.active_joystick_preset: JoystickPreset | None = resolve_joystick_preset(joystick_profile)
+        runtime_joystick_index = self.runtime_config.joystick_index
+        runtime_joystick_button = self.runtime_config.joystick_button
+        runtime_ptt_hotkey = self.runtime_config.ptt_hotkey
         if self.active_joystick_preset:
-            joystick_index = self.active_joystick_preset.joystick_index
-            joystick_button = self.active_joystick_preset.button_index
-            ptt_hotkey = self.active_joystick_preset.hotkey
+            runtime_joystick_index = self.active_joystick_preset.joystick_index
+            runtime_joystick_button = self.active_joystick_preset.button_index
+            runtime_ptt_hotkey = self.active_joystick_preset.hotkey
         self.input_manager = InputManager(
             InputManagerConfig(
-                joystick_enabled=enable_input_manager,
-                keyboard_enabled=enable_input_manager,
-                joystick=JoystickButtonBinding(joystick_index, joystick_button),
-                keyboard=KeyboardBinding(ptt_hotkey),
+                joystick_enabled=self.runtime_config.joystick_enabled,
+                keyboard_enabled=self.runtime_config.keyboard_enabled,
+                joystick=JoystickButtonBinding(runtime_joystick_index, runtime_joystick_button),
+                keyboard=KeyboardBinding(runtime_ptt_hotkey),
+                poll_hz=self.runtime_config.poll_hz,
             )
         )
+        self.enable_input_manager = self.runtime_config.keyboard_enabled or self.runtime_config.joystick_enabled
         self._ptt_source = "idle"
         self._last_transcript = ""
         self._last_stt_latency = 0.0
@@ -270,6 +289,13 @@ class WebRtcBridge:
                 engine=self.whisper_engine_name,
                 cli_exe=self.whisper_cli_exe,
                 language=get_whisper_language_code(language),
+                threads=self.config.stt.threads,
+                beam_size=self.config.stt.beam_size,
+                highpass_hz=self.config.stt.highpass_hz,
+                lowpass_hz=self.config.stt.lowpass_hz,
+                pre_roll_ms=self.config.stt.pre_roll_ms,
+                max_context_ms=self.config.stt.max_context_ms,
+                cli_timeout_seconds=self.config.stt.cli_timeout_seconds,
             )
         )
 
@@ -283,6 +309,7 @@ class WebRtcBridge:
                 static_level=self.config.tts.static_level,
                 bandpass_low_hz=self.config.tts.bandpass_low_hz,
                 bandpass_high_hz=self.config.tts.bandpass_high_hz,
+                piper_timeout_seconds=self.config.tts.piper_timeout_seconds,
             )
         )
 
@@ -341,6 +368,8 @@ class WebRtcBridge:
     def ptt_state(self) -> dict[str, Any]:
         return {
             "active": self.audio_buffer.recording,
+            "active_seconds": self.audio_buffer.active_seconds,
+            "max_context_ms": self.audio_buffer.max_context_ms,
             "source": self._ptt_source,
             "last_transcript": self._last_transcript,
             "last_stt_latency_seconds": self._last_stt_latency,
@@ -400,7 +429,13 @@ class WebRtcBridge:
 
         pc = RTCPeerConnection()
         outbound_audio = NimbusAudioTrack()
-        inbound_audio = InboundAudioSink(self.audio_buffer)
+        inbound_audio = InboundAudioSink(
+            self.audio_buffer,
+            vad=EnergyVad(
+                rms_threshold=self.runtime_config.vad_rms_threshold,
+                hangover_frames=self.runtime_config.vad_hangover_frames,
+            ),
+        )
         pc.addTrack(outbound_audio)
         self.peer_connections.add(pc)
         self.audio_tracks.add(outbound_audio)
@@ -503,17 +538,20 @@ class WebRtcBridge:
         await self._speak_response(response)
 
     async def _speak_response(self, response: str) -> None:
+        wav: Path | None = None
         try:
             wav = await asyncio.to_thread(self.radio_voice.synthesise_to_temp_wav, response)
             srs_result = await asyncio.to_thread(self.srs_adapter.dispatch_wav, wav, "nimbus")
             if srs_result.enabled:
                 audio_file_name = Path(srs_result.audio_file).name
-                if srs_result.returncode == 0:
-                    srs_message = "SRS external audio command executed."
-                elif srs_result.returncode is None:
-                    srs_message = "SRS external audio is unavailable. Check local SRS configuration."
-                else:
-                    srs_message = "SRS external audio command failed."
+                srs_message = srs_result.message
+                if not srs_message:
+                    if srs_result.returncode == 0:
+                        srs_message = "SRS external audio command executed."
+                    elif srs_result.returncode is None:
+                        srs_message = "SRS external audio is unavailable. Check local SRS configuration."
+                    else:
+                        srs_message = "SRS external audio command failed."
                 await self.dashboard_events.broadcast(
                     {
                         "type": "srs_audio",
@@ -528,6 +566,9 @@ class WebRtcBridge:
             await self.dashboard_events.broadcast(
                 safe_error_event("TTS_SRS_FAILED", "Radio voice output failed. Check local Piper/SRS configuration.")
             )
+        finally:
+            if wav is not None:
+                await asyncio.to_thread(self.radio_voice.cleanup_temp_wav, wav)
 
     def run(self) -> None:
         web.run_app(self.app, host=self.host, port=self.port)
@@ -562,17 +603,17 @@ def chunk_audio(samples: np.ndarray, chunk_size: int) -> list[np.ndarray]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the local Voice-Comms-DCS WebRTC bridge.")
     parser.add_argument("--config", default="config/commands.json")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--telemetry-host", default="127.0.0.1")
-    parser.add_argument("--telemetry-port", type=int, default=10309)
+    parser.add_argument("--host", default=None)
+    parser.add_argument("--port", type=int, default=None)
+    parser.add_argument("--telemetry-host", default=None)
+    parser.add_argument("--telemetry-port", type=int, default=None)
     parser.add_argument("--aircraft-profile", default="config/aircraft_profiles/default.json")
     parser.add_argument("--whisper-model")
-    parser.add_argument("--whisper-engine", choices=["auto", "binding", "cli"], default="auto")
-    parser.add_argument("--whisper-cli-exe", default="whisper-cli")
-    parser.add_argument("--ptt-hotkey", default="right_ctrl")
-    parser.add_argument("--joystick-index", type=int, default=0)
-    parser.add_argument("--joystick-button", type=int, default=1)
+    parser.add_argument("--whisper-engine", choices=["auto", "binding", "cli"], default=None)
+    parser.add_argument("--whisper-cli-exe", default=None)
+    parser.add_argument("--ptt-hotkey", default=None)
+    parser.add_argument("--joystick-index", type=int, default=None)
+    parser.add_argument("--joystick-button", type=int, default=None)
     parser.add_argument("--joystick-profile")
     parser.add_argument("--language", choices=["en", "zh", "ko", "fr", "ru", "es"])
     parser.add_argument("--personality", default="professional", choices=["professional", "conversational", "instructor", "rio"])
@@ -603,7 +644,7 @@ def main(argv: list[str] | None = None) -> int:
             joystick_index=args.joystick_index,
             joystick_button=args.joystick_button,
             joystick_profile=args.joystick_profile,
-            enable_input_manager=not args.disable_input_manager,
+            enable_input_manager=False if args.disable_input_manager else None,
             language=args.language,
             personality=args.personality,
             skin=args.skin,
