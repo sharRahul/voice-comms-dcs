@@ -99,6 +99,12 @@ class VoiceCommsUi(tk.Tk):
             messagebox.showerror("Unsupported STT Engine", "Only the Vosk backend is implemented in v0.1.")
             return
 
+        def on_transcript(text: str) -> None:
+            self.after(0, self._handle_transcript, text)
+
+        def on_status(message: str) -> None:
+            self.after(0, self._set_status, message)
+
         self.listener = VoskListener(
             self.config_model.stt,
             on_transcript=lambda text: (self.after(0, self._handle_transcript, text), None)[-1],

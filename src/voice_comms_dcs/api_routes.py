@@ -28,6 +28,7 @@ class DashboardEventHub:
 
     def __init__(self, send_timeout_seconds: float = 1.0) -> None:
         self.send_timeout_seconds = max(0.05, float(send_timeout_seconds))
+        self.privacy: DashboardPrivacyConfig | None = None
         self._clients: set[web.WebSocketResponse] = set()
         self._lock = asyncio.Lock()
         self.privacy: DashboardPrivacyConfig | None = None

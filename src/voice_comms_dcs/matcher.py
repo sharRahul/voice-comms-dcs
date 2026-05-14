@@ -127,7 +127,7 @@ def _cache_key(
     transcript: str,
     commands: tuple[VoiceCommand, ...],
     min_confidence: float,
-) -> tuple[str, tuple[tuple[str, tuple[str, ...]], ...], float]:
+) -> _CacheKey:
     return (normalise_text(transcript), _commands_key(commands), float(min_confidence))
 
 
