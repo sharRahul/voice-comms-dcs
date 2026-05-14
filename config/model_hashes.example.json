@@ -1,0 +1,30 @@
+{
+  "whisper": {
+    "tiny.en": {
+      "path": "models/whisper/ggml-tiny.en.bin",
+      "sha256": ""
+    },
+    "base.en": {
+      "path": "models/whisper/ggml-base.en.bin",
+      "sha256": ""
+    },
+    "tiny": {
+      "path": "models/whisper/ggml-tiny.bin",
+      "sha256": ""
+    },
+    "base": {
+      "path": "models/whisper/ggml-base.bin",
+      "sha256": ""
+    }
+  },
+  "piper": {
+    "en:model": {
+      "path": "models/piper/en_US-lessac-low.onnx",
+      "sha256": ""
+    },
+    "en:config": {
+      "path": "models/piper/en_US-lessac-low.onnx.json",
+      "sha256": ""
+    }
+  }
+}
