@@ -10,9 +10,7 @@ $ErrorActionPreference = "Stop"
 Write-Host "== Voice-Comms-DCS build =="
 Write-Host "Using spec: $SpecPath"
 Write-Host "Using requirements: $RequirementsPath"
-if (Test-Path $ConstraintsPath) {
-    Write-Host "Using constraints: $ConstraintsPath"
-}
+Write-Host "Using constraints: $ConstraintsPath"
 
 if (-not (Test-Path $SpecPath)) {
     throw "PyInstaller spec not found: $SpecPath"
@@ -22,13 +20,11 @@ if (-not $SkipDependencyInstall) {
     if (-not (Test-Path $RequirementsPath)) {
         throw "Requirements file not found: $RequirementsPath"
     }
+    if (-not (Test-Path $ConstraintsPath)) {
+        throw "Constraints file not found: $ConstraintsPath. Build dependencies must be installed through the reproducible constraints path."
+    }
     python -m pip install --upgrade pip
-    if (Test-Path $ConstraintsPath) {
-        python -m pip install -r $RequirementsPath -c $ConstraintsPath
-    }
-    else {
-        python -m pip install -r $RequirementsPath
-    }
+    python -m pip install -r $RequirementsPath -c $ConstraintsPath
     python -m pip install -e . --no-deps
 }
 else {
