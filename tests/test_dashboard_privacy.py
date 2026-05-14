@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from voice_comms_dcs.api_routes import _snapshot
+from voice_comms_dcs.api_routes import _redact_event, _snapshot
 from voice_comms_dcs.config import DashboardPrivacyConfig
 
 
@@ -83,3 +83,16 @@ def test_privacy_can_hide_tactical_context_and_last_transcript():
     assert snapshot["tactical"] == {}
     assert snapshot["context"] == ""
     assert "last_transcript" not in snapshot["ptt"]
+
+
+def test_ptt_broadcast_redacts_model_path_and_transcript_when_configured():
+    event = {"type": "ptt", "state": _ptt()}
+    redacted = _redact_event(event, DashboardPrivacyConfig(expose_last_transcript=False))
+    assert redacted["state"]["whisper_model"] == "ggml-base.en.bin"
+    assert "last_transcript" not in redacted["state"]
+
+
+def test_transcript_broadcast_can_be_redacted():
+    event = {"type": "transcript", "text": "request tanker"}
+    redacted = _redact_event(event, DashboardPrivacyConfig(expose_last_transcript=False))
+    assert redacted["text"] == "[redacted]"
