@@ -24,8 +24,7 @@ dependencies = [
   "scipy>=1.13.0",
   "requests>=2.32.0",
   "pygame>=2.5.2",
-  "pynput>=1.7.6",
-  "whisper-cpp-python>=0.2.0"
+  "pynput>=1.7.6"
 ]
 
 [project.optional-dependencies]
@@ -36,6 +35,9 @@ dev = [
   "ruff",
   "pip-audit",
   "build"
+]
+whisper = [
+  "whisper-cpp-python>=0.2.0"
 ]
 
 [project.scripts]
