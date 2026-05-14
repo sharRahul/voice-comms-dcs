@@ -12,9 +12,12 @@ websockets==12.0
 av==12.0.0
 numpy==1.26.4
 scipy==1.13.0
-requests==2.32.0
+requests==2.34.1
 pygame==2.5.2
 pynput==1.7.6
+
+# Optional Whisper.cpp binding pin used by requirements-whisper.txt.
+# Keep this out of default CI installs because it builds native vendored sources.
 whisper-cpp-python==0.2.0
 
 # Development and audit tooling pins used by requirements-dev.txt.
