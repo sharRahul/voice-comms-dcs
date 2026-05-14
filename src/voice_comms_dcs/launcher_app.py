@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 launcher_app.py — PyQt6 main launcher window for Voice-Comms-DCS.
 
@@ -8,13 +6,14 @@ Provides a modern dark-themed control panel for starting/stopping the
 Nimbus WebRTC bridge, monitoring connection status, and quick settings.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import platform
 import subprocess
 import sys
 import threading
-import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +21,6 @@ from typing import Optional
 
 from PyQt6.QtCore import (
     QSettings,
-    QSize,
     Qt,
     QTimer,
     pyqtSignal,
