@@ -18,6 +18,7 @@ env/
 
 # Build outputs
 dist/
+build/lib/
 build_output/
 *.spec.bak
 *.msi
