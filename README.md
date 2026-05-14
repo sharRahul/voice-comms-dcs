@@ -14,10 +14,6 @@ flowchart LR
     J --> K[Nimbus intelligence]
     K --> L[Piper voice output]
     K --> M[DCS UDP command bridge]
-
-
-	S[Installer language selection] --> T[Whisper STT Local speech-to-text] --> N[Nimbus LLM orchestration + command handler] --> O[Piper TTS Radio voice output]
-	P[DCS World dcs_telemetry.lua hook] --> Q[Telemetry parser UDP 10 Hz → JSON context] --> N[Nimbus LLM orchestration + command handler] --> R[VoiceBridge DCS mission flags]
 ```
 
 ## Supported languages
@@ -221,6 +217,49 @@ Install the selected language voice:
 voice-comms-dcs --setup-dependencies-ui --languages es --skip-ollama --skip-whisper
 ```
 
+## Runtime architecture
+
+Nimbus has three runtime paths: microphone audio into speech recognition, DCS telemetry into the context window, and Nimbus responses back out to the pilot or the mission.
+
+```mermaid
+flowchart LR
+    Mic[Microphone/PTT] -- audio --> WebRTC[WebRTC bridge<br/>webrtc_bridge.py]
+    WebRTC -- audio --> Whisper[Whisper STT engine<br/>stt_whisper_engine.py]
+    Whisper -- audio --> Nimbus[Nimbus intelligence<br/>nimbus_intelligence.py]
+
+    DCS[DCS World] -- UDP telemetry --> TelemetryLua[dcs_telemetry.lua<br/>Export.lua hook<br/>non-blocking UDP send]
+    TelemetryLua -- UDP telemetry --> UdpSocket[UDP socket<br/>10 Hz]
+    UdpSocket -- UDP telemetry --> Receiver[Python telemetry receiver]
+    Receiver -- UDP telemetry --> Context[Nimbus context window]
+    Context --> Nimbus
+
+    Nimbus -- TTS response --> Piper[Piper TTS<br/>radio_voice.py]
+    Piper -- TTS response --> Speaker[Speaker<br/>WebRTC audio out]
+
+    Nimbus -- UDP command --> Handler[Deterministic command handler]
+    Handler -- UDP command --> VoiceBridge[VoiceBridge.lua]
+    VoiceBridge -- UDP command --> Flag[DCS user flag]
+```
+
+### Graceful degradation
+
+Nimbus is designed to keep mission-owned command behaviour deterministic even when local AI components are unavailable.
+
+- If Ollama is unavailable or too slow, Nimbus returns `Comms system offline, wingman unavailable. Commands still active.` Deterministic voice commands still work, telemetry still streams, and unrecognised LLM queries receive the offline notice.
+- If the Whisper model fails to load, PTT input should be disabled and the dashboard should show a warning while telemetry and gauges continue to function (planned).
+- If DCS is not running, the telemetry socket receives no data. Nimbus operates in no-telemetry mode and answers without aircraft context.
+- If Piper TTS fails, Nimbus should keep returning text output to the dashboard terminal and skip spoken audio for that response (planned).
+
+### Context window and state management
+
+Conversation history is held in memory by `NimbusIntelligence` through the runtime `ContextManager`. It is not written to disk and does not persist across app restarts.
+
+The conversation window is deliberately small because Nimbus runs against local models. The context manager keeps a bounded tail of recent turns, and `NimbusIntelligence.trim_history_if_needed()` also estimates the token load using a simple `words × 1.3` approximation. When the estimate exceeds `NIMBUS_CONTEXT_LIMIT` (default `2048`), the oldest user/assistant turns are dropped while the system prompt and the latest turns are kept.
+
+Telemetry is not appended to conversation history. Instead, the current telemetry snapshot is formatted as a separate system-context block when a Whisper trigger or text input is handled. This keeps fast-changing aircraft state from polluting the chat history.
+
+The decision boundary is deterministic first: recognised command phrases are matched and dispatched by the command handler before any LLM call. Direct telemetry questions are answered from the current telemetry JSON. Only unrecognised conversational queries are routed to Ollama.
+
 ## Project layout
 
 ```text
@@ -249,9 +288,12 @@ voice-comms-dcs/
 │   ├── pyinstaller.spec
 │   └── voice-comms-dcs.iss
 └── docs/
-    ├── phase4_global_deployment.md
+    ├── lua-timing-guide.md
     ├── model_selection.md
-    └── security_report.md
+    ├── phase4_global_deployment.md
+    ├── rwr-adapter-spec.md
+    ├── security_report.md
+    └── srs-integration-spec.md
 ```
 
 ## Build and installer
@@ -278,12 +320,13 @@ LAN binding is refused unless `--allow-lan` is passed, and dashboard authenticat
 
 ## Roadmap
 
-- Backend wiring for dashboard personality toggle.
-- Browser UI polishing and aircraft-specific skins.
-- Joystick profile presets for Warthog, Winwing, T16000M, Logitech, and Viper panels.
-- SRS-specific audio injection path.
-- Aircraft-specific RWR adapters.
-- Signed installer and model checksum manifest.
+- Backend wiring for dashboard personality toggle (planned).
+- Browser UI polishing and aircraft-specific skins (planned).
+- Joystick profile presets for Warthog, Winwing, T16000M, Logitech, and Viper panels (planned).
+- SRS-specific audio injection path (spec: `docs/srs-integration-spec.md`).
+- Aircraft-specific RWR adapters (spec: `docs/rwr-adapter-spec.md`).
+- DCS Lua timing and non-blocking export guidance (spec: `docs/lua-timing-guide.md`).
+- Signed installer and model checksum manifest (under evaluation).
 
 ## License
 
