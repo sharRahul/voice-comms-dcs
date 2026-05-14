@@ -860,11 +860,14 @@ class LauncherWindow(QMainWindow):
             f"QMenu::item:selected {{ background: {C_ACCENT}; color: #050812; }}"
         )
         act_open = menu.addAction("Open")
+        assert act_open is not None
         act_open.triggered.connect(self._tray_open)
         act_toggle = menu.addAction("Show / Hide")
+        assert act_toggle is not None
         act_toggle.triggered.connect(self._tray_toggle)
         menu.addSeparator()
         act_quit = menu.addAction("Quit")
+        assert act_quit is not None
         act_quit.triggered.connect(self._quit_app)
 
         self._tray.setContextMenu(menu)

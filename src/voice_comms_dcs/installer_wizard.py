@@ -10,7 +10,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 try:
     from PyQt6.QtWidgets import (
@@ -617,7 +617,7 @@ class StepIndicator(QWidget):
         # Draw label
         label_font = QFont("Segoe UI", 11)
         if self._state == "current":
-            label_font.setWeight(QFont.Weight.SemiBold)
+            label_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(label_font)
         painter.setPen(QPen(label_color))
         text_x = cx + radius + 12
@@ -1442,7 +1442,8 @@ class _ProgressPage(QWidget):
     def _append_log(self, line: str) -> None:
         self._log_edit.append(line)
         sb = self._log_edit.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        if sb is not None:
+            sb.setValue(sb.maximum())
 
     @property
     def worker(self) -> _InstallWorker | None:
@@ -1836,7 +1837,7 @@ class InstallerWizard(QDialog):
 
 def main() -> None:
     """Standalone entry point for testing the wizard."""
-    app = QApplication.instance() or QApplication(sys.argv)
+    app = cast(QApplication, QApplication.instance() or QApplication(sys.argv))
     app.setApplicationName("Voice-Comms-DCS Setup")
     app.setOrganizationName("Voice-Comms-DCS")
 
