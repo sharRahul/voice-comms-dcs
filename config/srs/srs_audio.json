@@ -5,17 +5,7 @@
   "frequency_mhz": 251.0,
   "modulation": "AM",
   "coalition": "blue",
+  "allow_custom_command_template": false,
   "timeout_seconds": 10.0,
-  "command_template": [
-    "{exe}",
-    "--file",
-    "{file}",
-    "--freq",
-    "{frequency_mhz}",
-    "--modulation",
-    "{modulation}",
-    "--coalition",
-    "{coalition}"
-  ],
-  "notes": "Disabled by default. Configure command_template to match your installed SRS ExternalAudio helper version. The adapter uses explicit argv tokens and never shells through cmd.exe."
+  "notes": "Disabled by default. The adapter uses a fixed safe argv template and never shells through cmd.exe. Custom command_template values are ignored unless allow_custom_command_template is explicitly true and the template validates."
 }
