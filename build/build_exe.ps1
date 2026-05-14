@@ -1,6 +1,7 @@
 param(
     [string]$SpecPath = "build\pyinstaller.spec",
     [string]$RequirementsPath = "requirements.txt",
+    [string]$ConstraintsPath = "constraints.txt",
     [switch]$SkipDependencyInstall
 )
 
@@ -9,6 +10,9 @@ $ErrorActionPreference = "Stop"
 Write-Host "== Voice-Comms-DCS build =="
 Write-Host "Using spec: $SpecPath"
 Write-Host "Using requirements: $RequirementsPath"
+if (Test-Path $ConstraintsPath) {
+    Write-Host "Using constraints: $ConstraintsPath"
+}
 
 if (-not (Test-Path $SpecPath)) {
     throw "PyInstaller spec not found: $SpecPath"
@@ -19,7 +23,12 @@ if (-not $SkipDependencyInstall) {
         throw "Requirements file not found: $RequirementsPath"
     }
     python -m pip install --upgrade pip
-    python -m pip install -r $RequirementsPath
+    if (Test-Path $ConstraintsPath) {
+        python -m pip install -r $RequirementsPath -c $ConstraintsPath
+    }
+    else {
+        python -m pip install -r $RequirementsPath
+    }
     python -m pip install -e . --no-deps
 }
 else {
