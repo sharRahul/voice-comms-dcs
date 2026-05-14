@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test, lint, and audit
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install constrained dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -c constraints.txt
+          python -m pip install -r requirements-dev.txt -c constraints.txt
+          python -m pip install -e . --no-deps
+
+      - name: Compile source
+        run: python -m compileall src
+
+      - name: Run tests
+        run: python -m pytest -q
+
+      - name: Lint
+        run: ruff check src tests
+
+      - name: Audit Python dependencies
+        run: pip-audit --skip-editable
