@@ -10,7 +10,7 @@ from .config import VoiceCommand
 _WORD_RE = re.compile(r"[^a-z0-9 ]+")
 _CACHE_LOCK = Lock()
 _CacheKey = tuple[str, tuple[tuple[str, tuple[str, ...]], ...], float]
-_LAST_MATCH: tuple[_CacheKey, MatchResult | None] | None = None
+_LAST_MATCH: tuple[_CacheKey, "MatchResult | None"] | None = None
 
 
 @dataclass(frozen=True)

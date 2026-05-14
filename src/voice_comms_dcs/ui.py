@@ -107,8 +107,8 @@ class VoiceCommsUi(tk.Tk):
 
         self.listener = VoskListener(
             self.config_model.stt,
-            on_transcript=on_transcript,
-            on_status=on_status,
+            on_transcript=lambda text: (self.after(0, self._handle_transcript, text), None)[-1],
+            on_status=lambda message: (self.after(0, self._set_status, message), None)[-1],
         )
         try:
             self.listener.start()

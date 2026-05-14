@@ -245,8 +245,9 @@ def main(argv: list[str] | None = None) -> int:
         "message": result.message,
         "stderr": result.stderr,
     }, indent=2))
-    rc = result.returncode
-    return 0 if rc in {None, 0} else int(rc)
+    if result.returncode is None or result.returncode == 0:
+        return 0
+    return result.returncode
 
 
 if __name__ == "__main__":
