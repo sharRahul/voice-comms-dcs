@@ -21,25 +21,41 @@ flowchart LR
 
 ## Quick start
 
-### 1. Install dependencies
+### Option A — GUI (recommended)
+
+Double-click the installed **Nimbus Launcher** shortcut, or run:
 
 ```powershell
-voice-comms-dcs --setup-dependencies-ui --languages en --ollama-model qwen2.5:0.5b --whisper-quality base
+voice-comms-dcs-launcher
 ```
 
-### 2. Install the DCS Lua bridge
+The launcher walks you through first-time setup, model downloads, and DCS bridge installation via a graphical interface. No command line required.
+
+### Option B — First-time CLI setup
+
+**1. Run the setup wizard**
+
+```powershell
+voice-comms-dcs-installer
+```
+
+This opens the PyQt6 installer wizard — choose your languages, Ollama model, Whisper quality, and install location interactively.
+
+**2. Install the DCS Lua bridge**
 
 ```powershell
 voice-comms-dcs --install-lua
 ```
 
-### 3. Start the dashboard
+**3. Start the bridge and open the dashboard**
 
 ```powershell
 voice-comms-dcs-webrtc --config config\commands.json
 ```
 
 Open the URL printed at startup (e.g. `http://127.0.0.1:8765/dashboard?token=…`).
+
+> The browser dashboard features a dark DCS-themed UI with live telemetry arc gauges, voice conversation log, PTT controls, per-aircraft colour skins, and multilingual support.
 
 ## Supported languages
 
@@ -81,7 +97,9 @@ voice-comms-dcs/
 ├── dcs_scripts/
 │   ├── VoiceBridge.lua            # Command receiver (DCS flag setter)
 │   └── dcs_telemetry.lua          # Telemetry exporter (UDP sender)
-├── src/voice_comms_dcs/           # Python source
+├── src/voice_comms_dcs/
+│   ├── installer_wizard.py        # PyQt6 setup wizard (7-step GUI installer)
+│   ├── launcher_app.py            # PyQt6 main launcher with system tray
 │   └── web_ui/                    # Browser dashboard (HTML/JS/CSS)
 ├── docs/
 │   └── USER_MANUAL.md             # Full user guide

@@ -1,9 +1,16 @@
-from __future__ import annotations
-
 """
 Voice-Comms-DCS Setup Wizard
 A premium dark-themed multi-step installation dialog built with PyQt6.
 """
+
+from __future__ import annotations
+
+import os
+import shutil
+import sys
+import time
+from pathlib import Path
+from typing import Any, cast
 
 try:
     from PyQt6.QtWidgets import (
@@ -22,7 +29,6 @@ try:
         QRadioButton,
         QScrollArea,
         QSizePolicy,
-        QSpacerItem,
         QStackedWidget,
         QTextEdit,
         QVBoxLayout,
@@ -34,7 +40,6 @@ try:
         QThread,
         pyqtSignal,
         QTimer,
-        QSize,
     )
     from PyQt6.QtGui import (
         QColor,
@@ -44,8 +49,6 @@ try:
         QPen,
         QBrush,
         QPalette,
-        QPixmap,
-        QIcon,
     )
 except ImportError as exc:
     raise ImportError(
@@ -53,14 +56,6 @@ except ImportError as exc:
         "Install it with:  pip install PyQt6\n"
         f"Original error: {exc}"
     ) from exc
-
-import os
-import shutil
-import sys
-import threading
-import time
-from pathlib import Path
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -587,20 +582,16 @@ class StepIndicator(QWidget):
             circle_border = QColor(C_ACCENT)
             num_color = QColor(C_BG)
             label_color = QColor(C_TEXT)
-            dot_color = QColor(C_ACCENT)
         elif self._state == "done":
             circle_bg = QColor(C_ACCENT2)
             circle_border = QColor(C_ACCENT2)
             num_color = QColor(C_BG)
             label_color = QColor(C_TEXT_MUTED)
-            dot_color = QColor(C_ACCENT2)
         else:  # future
             circle_bg = QColor(C_STEP_FUTURE)
             circle_border = QColor(C_BORDER)
             num_color = QColor(C_TEXT_DIM)
             label_color = QColor(C_TEXT_DIM)
-            dot_color = QColor(C_STEP_FUTURE)
-
         radius = 16
 
         # Draw active indicator bar on left edge
@@ -626,7 +617,7 @@ class StepIndicator(QWidget):
         # Draw label
         label_font = QFont("Segoe UI", 11)
         if self._state == "current":
-            label_font.setWeight(QFont.Weight.SemiBold)
+            label_font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(label_font)
         painter.setPen(QPen(label_color))
         text_x = cx + radius + 12
@@ -916,7 +907,7 @@ class _LicensePage(QWidget):
         scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         license_widget = QWidget()
-        license_widget.setStyleSheet(f"background-color: #030710; border-radius: 6px;")
+        license_widget.setStyleSheet("background-color: #030710; border-radius: 6px;")
         lv = QVBoxLayout(license_widget)
         lv.setContentsMargins(16, 16, 16, 16)
 
@@ -1451,7 +1442,8 @@ class _ProgressPage(QWidget):
     def _append_log(self, line: str) -> None:
         self._log_edit.append(line)
         sb = self._log_edit.verticalScrollBar()
-        sb.setValue(sb.maximum())
+        if sb is not None:
+            sb.setValue(sb.maximum())
 
     @property
     def worker(self) -> _InstallWorker | None:
@@ -1845,7 +1837,7 @@ class InstallerWizard(QDialog):
 
 def main() -> None:
     """Standalone entry point for testing the wizard."""
-    app = QApplication.instance() or QApplication(sys.argv)
+    app = cast(QApplication, QApplication.instance() or QApplication(sys.argv))
     app.setApplicationName("Voice-Comms-DCS Setup")
     app.setOrganizationName("Voice-Comms-DCS")
 

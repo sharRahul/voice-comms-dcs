@@ -8,35 +8,40 @@
 
 1. [Overview](#overview)
 2. [System requirements](#system-requirements)
-3. [Installation](#installation)
+3. [GUI installer wizard](#gui-installer-wizard)
+4. [Nimbus Launcher](#nimbus-launcher)
+5. [Installation (CLI / advanced)](#installation-cli--advanced)
    - [Step 1 — Install Python and base package](#step-1--install-python-and-base-package)
    - [Step 2 — Download AI models](#step-2--download-ai-models)
    - [Step 3 — Install the DCS Lua bridge](#step-3--install-the-dcs-lua-bridge)
    - [Step 4 — Configure voice commands](#step-4--configure-voice-commands)
-4. [Starting the dashboard](#starting-the-dashboard)
-5. [Using the dashboard](#using-the-dashboard)
+6. [Starting the dashboard](#starting-the-dashboard)
+7. [Using the dashboard](#using-the-dashboard)
    - [Connecting the microphone](#connecting-the-microphone)
    - [Push-to-talk](#push-to-talk)
    - [Language switching](#language-switching)
-   - [Conversation terminal](#conversation-terminal)
+   - [Conversation log](#conversation-log)
    - [Telemetry gauges](#telemetry-gauges)
-6. [Voice commands](#voice-commands)
+   - [Aircraft skins](#aircraft-skins)
+8. [Voice commands](#voice-commands)
    - [How command matching works](#how-command-matching-works)
    - [Defining commands](#defining-commands)
    - [Testing commands](#testing-commands)
-7. [Aircraft profiles](#aircraft-profiles)
-8. [Command-line reference](#command-line-reference)
-   - [voice-comms-dcs](#voice-comms-dcs)
-   - [voice-comms-dcs-webrtc](#voice-comms-dcs-webrtc)
-9. [Configuration file reference](#configuration-file-reference)
-10. [Environment variables](#environment-variables)
-11. [Model selection guide](#model-selection-guide)
-12. [SRS integration](#srs-integration)
-13. [RWR adapters](#rwr-adapters)
-14. [DCS Lua bridge details](#dcs-lua-bridge-details)
-15. [Security](#security)
-16. [Troubleshooting](#troubleshooting)
-17. [Uninstalling](#uninstalling)
+9. [Aircraft profiles](#aircraft-profiles)
+10. [Command-line reference](#command-line-reference)
+    - [voice-comms-dcs-installer](#voice-comms-dcs-installer)
+    - [voice-comms-dcs-launcher](#voice-comms-dcs-launcher)
+    - [voice-comms-dcs](#voice-comms-dcs)
+    - [voice-comms-dcs-webrtc](#voice-comms-dcs-webrtc)
+11. [Configuration file reference](#configuration-file-reference)
+12. [Environment variables](#environment-variables)
+13. [Model selection guide](#model-selection-guide)
+14. [SRS integration](#srs-integration)
+15. [RWR adapters](#rwr-adapters)
+16. [DCS Lua bridge details](#dcs-lua-bridge-details)
+17. [Security](#security)
+18. [Troubleshooting](#troubleshooting)
+19. [Uninstalling](#uninstalling)
 
 ---
 
@@ -71,11 +76,54 @@ The command path (speech → flag) is fully deterministic and never routes throu
 
 ---
 
-## Installation
+## GUI installer wizard
+
+The quickest way to get set up is the graphical installer wizard. Run it from the packaged `.exe` shortcut, or via:
+
+```powershell
+voice-comms-dcs-installer
+```
+
+The wizard walks through seven steps:
+
+| Step | What happens |
+|------|-------------|
+| **Welcome** | System requirement checks (Python, RAM, disk, DCS World) |
+| **Licence** | MIT licence — must accept to continue |
+| **Install location** | Choose the folder; live disk-space indicator turns amber if space is tight |
+| **Languages & models** | Tick the languages you fly in; pick Ollama model size and Whisper quality; download size estimate updates in real time |
+| **DCS bridge** | Detects DCS Saved Games folders; tick each installation target; skip if not using DCS yet |
+| **Progress** | Downloads models and installs the Lua bridge in the background; per-component progress bars; full log visible |
+| **Complete** | Summary of what was installed; **Launch** button opens the Nimbus Launcher |
+
+Interrupted installs resume from where they stopped. You can re-run the wizard at any time to add languages or upgrade models.
+
+---
+
+## Nimbus Launcher
+
+After installation, use the **Nimbus Launcher** as your day-to-day control panel:
+
+```powershell
+voice-comms-dcs-launcher
+```
+
+### Launcher features
+
+- **Status cards** — shows live status for the WebRTC bridge, Ollama LLM, and DCS connection (green = running, amber = starting, red = stopped/unreachable).
+- **Start / Stop bridge** — one-click toggle for `voice-comms-dcs-webrtc`. Logs appear in the activity panel.
+- **Open Dashboard** — opens the browser dashboard at the current session URL.
+- **System tray** — minimises to the system tray; right-click for Open / Show-Hide / Quit. The tray icon persists so the bridge stays running in the background.
+- **Quick settings** — personality style, language, and HOTAS preset without opening the full dashboard.
+- **Minimize to tray on close** — configurable; the bridge keeps running until you choose Quit from the tray menu.
+
+---
+
+## Installation (CLI / advanced)
 
 ### Step 1 — Install Python and base package
 
-If using the packaged installer (`.exe`), run it and follow the on-screen steps. The installer handles Python and dependency setup automatically.
+If using the packaged installer (`.exe`), run the setup wizard described above. The wizard handles Python and dependency setup automatically.
 
 If installing from source:
 
@@ -213,29 +261,50 @@ Use the language dropdown in the dashboard. Switching language updates the Whisp
 
 The installed language list comes from `language.installed` in your `commands.json`. Only languages downloaded in Step 2 will appear.
 
-### Conversation terminal
+### Conversation log
 
-The terminal shows the bidirectional exchange between you and Nimbus:
+The chat log shows the bidirectional exchange between you and Nimbus as speech bubbles:
 
-- **Blue** — your transcribed speech
-- **Amber** — Nimbus responses (LLM or telemetry answers)
-- **Grey** — matched commands dispatched to DCS
+- **Orange bubble (right)** — your transcribed speech (PILOT)
+- **Blue bubble (left)** — Nimbus responses, with a command-intent badge when a DCS flag was set
+- **Yellow monospace** — system events (connected, PTT preset loaded)
+- **Red** — errors (mic permission denied, auth failure)
 
-Type text directly into the terminal input to send a message without PTT.
+Type text directly into the input field at the bottom to send a test phrase without using PTT.
 
 ### Telemetry gauges
 
-When DCS is running and `dcs_telemetry.lua` is active, the dashboard shows live:
+When DCS is running and `dcs_telemetry.lua` is active, the sidebar shows live arc gauges for:
 
-- Altitude ASL / AGL
-- Indicated airspeed
-- Heading
-- Fuel (kg)
-- Engine RPM (left/right)
-- G-load
-- Latitude / longitude (opt-in — see [Privacy controls](#privacy-controls))
+| Gauge | Range | Colour |
+|-------|-------|--------|
+| FUEL kg | 0 – 10 000 kg | Orange (DCS accent) |
+| ALT ft | 0 – 50 000 ft | Sky blue |
+| IAS kt | 0 – 700 kt | Orange |
+| G LOAD | 0 – 9 g | Red |
 
-If DCS is not running, gauges show `--` and Nimbus answers without aircraft context.
+Below the gauges: **HDG** (heading in degrees), **GEAR** (UP/DN), **FLAPS** (%).
+
+The telemetry age badge on the card header turns amber when the last packet is more than 2 seconds old.
+
+If DCS is not running, gauges show `–` and Nimbus answers without aircraft context.
+
+### Aircraft skins
+
+Select an aircraft in the **Aircraft skin** dropdown in the top navigation bar. Each skin changes the accent colour scheme to match the airframe:
+
+| Skin | Accent | Secondary |
+|------|--------|-----------|
+| Default | Orange | Sky blue |
+| F-16 Viper | Orange | Cyan |
+| F/A-18 Hornet | Orange | Blue |
+| F-15 Eagle | Orange | Periwinkle |
+| Su-27 Flanker | Orange | Red |
+| MiG-29 Fulcrum | Orange | Pink |
+| Su-57 Felon | Orange | Sky blue |
+| F-22 Raptor | Orange | Violet |
+
+The skin preference is saved to `localStorage` and restored on next visit.
 
 ---
 
@@ -358,6 +427,26 @@ Create your own profile by copying `default.json` and editing the fields. The `r
 ---
 
 ## Command-line reference
+
+### voice-comms-dcs-installer
+
+Opens the 7-step graphical setup wizard.
+
+```text
+voice-comms-dcs-installer
+```
+
+No arguments. All options are configured interactively. Re-running the wizard is safe — it will not overwrite models already present unless you change the quality tier.
+
+### voice-comms-dcs-launcher
+
+Opens the Nimbus Launcher control panel.
+
+```text
+voice-comms-dcs-launcher
+```
+
+No arguments. Launcher settings (tray preference, last config path) are stored in the OS settings store (`QSettings`).
 
 ### voice-comms-dcs
 
