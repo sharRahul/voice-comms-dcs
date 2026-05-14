@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .runtime_config import ensure_default_config
+
 
 class ConfigError(ValueError):
     """Raised when commands.json is missing required fields."""
@@ -303,7 +305,7 @@ def _parse_dashboard_privacy(data: dict[str, Any]) -> DashboardPrivacyConfig:
 
 
 def load_config(path: str | Path) -> AppConfig:
-    config_path = Path(path)
+    config_path = ensure_default_config(path)
     if not config_path.exists():
         raise ConfigError(f"Config file not found: {config_path}")
 
