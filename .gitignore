@@ -25,6 +25,9 @@ build_output/
 *.zip
 
 # Local configuration
+.env
+.env.*
+!.env.example
 config/commands.json
 models/
 logs/
