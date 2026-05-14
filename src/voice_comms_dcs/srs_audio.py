@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import shutil
 import subprocess
 import time
@@ -10,29 +11,11 @@ from pathlib import Path
 from typing import Any
 
 
-@dataclass(frozen=True)
-class SrsAudioConfig:
-    enabled: bool = False
-    external_audio_exe: str = "C:/Program Files/DCS-SimpleRadio-Standalone/DCS-SR-ExternalAudio.exe"
-    output_dir: str = "build_output/srs_external_audio"
-    frequency_mhz: float = 251.0
-    modulation: str = "AM"
-    coalition: str = "blue"
-    command_template: list[str] | None = None
-    timeout_seconds: float = 10.0
+LOGGER = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True)
-class SrsDispatchResult:
-    enabled: bool
-    audio_file: Path
-    command: tuple[str, ...] = ()
-    returncode: int | None = None
-    stdout: str = ""
-    stderr: str = ""
-    message: str = ""
-
-
+VALID_MODULATIONS = {"AM", "FM"}
+VALID_COALITIONS = {"blue", "red", "neutral"}
+BLOCKED_COMMAND_NAMES = {"cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "bash", "sh"}
 DEFAULT_COMMAND_TEMPLATE = [
     "{exe}",
     "--file",
@@ -44,6 +27,33 @@ DEFAULT_COMMAND_TEMPLATE = [
     "--coalition",
     "{coalition}",
 ]
+
+
+@dataclass(frozen=True)
+class SrsAudioConfig:
+    enabled: bool = False
+    external_audio_exe: str = "C:/Program Files/DCS-SimpleRadio-Standalone/DCS-SR-ExternalAudio.exe"
+    output_dir: str = "build_output/srs_external_audio"
+    frequency_mhz: float = 251.0
+    modulation: str = "AM"
+    coalition: str = "blue"
+    command_template: list[str] | None = None
+    allow_custom_command_template: bool = False
+    timeout_seconds: float = 10.0
+
+    def __post_init__(self) -> None:
+        validate_srs_config(self)
+
+
+@dataclass(frozen=True)
+class SrsDispatchResult:
+    enabled: bool
+    audio_file: Path
+    command: tuple[str, ...] = ()
+    returncode: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    message: str = ""
 
 
 class SafeFormatDict(dict[str, str]):
@@ -67,8 +77,18 @@ class SrsExternalAudioAdapter:
         file_path = Path(path)
         defaults = SrsAudioConfig()
         data = json.loads(file_path.read_text(encoding="utf-8")) if file_path.exists() else {}
-        template_data = data.get("command_template", DEFAULT_COMMAND_TEMPLATE)
-        command_template = template_data if isinstance(template_data, list) else DEFAULT_COMMAND_TEMPLATE
+        allow_custom_template = bool(data.get("allow_custom_command_template", defaults.allow_custom_command_template))
+
+        command_template: list[str] | None = None
+        template_data = data.get("command_template")
+        if template_data is not None:
+            if allow_custom_template:
+                command_template = _coerce_template(template_data)
+            else:
+                LOGGER.warning(
+                    "Ignoring SRS command_template because allow_custom_command_template is false."
+                )
+
         return cls(
             SrsAudioConfig(
                 enabled=bool(data.get("enabled", defaults.enabled)),
@@ -77,7 +97,8 @@ class SrsExternalAudioAdapter:
                 frequency_mhz=float(data.get("frequency_mhz", defaults.frequency_mhz)),
                 modulation=str(data.get("modulation", defaults.modulation)).upper(),
                 coalition=str(data.get("coalition", defaults.coalition)).lower(),
-                command_template=list(command_template),
+                command_template=command_template,
+                allow_custom_command_template=allow_custom_template,
                 timeout_seconds=float(data.get("timeout_seconds", defaults.timeout_seconds)),
             )
         )
@@ -120,6 +141,7 @@ class SrsExternalAudioAdapter:
                 errors="replace",
                 check=False,
                 timeout=self.config.timeout_seconds,
+                shell=False,
             )
         except subprocess.TimeoutExpired:
             return SrsDispatchResult(
@@ -146,11 +168,60 @@ class SrsExternalAudioAdapter:
             exe=self.config.external_audio_exe,
             file=str(audio_file),
             frequency_mhz=f"{self.config.frequency_mhz:.3f}",
-            modulation=self.config.modulation,
-            coalition=self.config.coalition,
+            modulation=self.config.modulation.upper(),
+            coalition=self.config.coalition.lower(),
         )
-        template = self.config.command_template or DEFAULT_COMMAND_TEMPLATE
+        template = self.config.command_template if self.config.allow_custom_command_template else None
+        if template is None:
+            template = DEFAULT_COMMAND_TEMPLATE
         return [str(token).format_map(mapping) for token in template]
+
+
+def validate_srs_config(config: SrsAudioConfig) -> None:
+    exe = str(config.external_audio_exe).strip()
+    if not exe:
+        raise ValueError("SRS external_audio_exe must not be empty.")
+    exe_name = Path(exe).name.lower()
+    if exe_name in BLOCKED_COMMAND_NAMES:
+        raise ValueError(f"SRS external_audio_exe is blocked: {exe_name}")
+    if Path(exe).suffix and Path(exe).suffix.lower() != ".exe":
+        raise ValueError("SRS external_audio_exe must be an .exe path when a file suffix is provided.")
+
+    if not 1.0 <= float(config.frequency_mhz) <= 1000.0:
+        raise ValueError("SRS frequency_mhz must be between 1.0 and 1000.0.")
+    if config.modulation.upper() not in VALID_MODULATIONS:
+        raise ValueError(f"SRS modulation must be one of {sorted(VALID_MODULATIONS)}.")
+    if config.coalition.lower() not in VALID_COALITIONS:
+        raise ValueError(f"SRS coalition must be one of {sorted(VALID_COALITIONS)}.")
+    if float(config.timeout_seconds) <= 0:
+        raise ValueError("SRS timeout_seconds must be positive.")
+
+    if config.command_template is not None:
+        if not config.allow_custom_command_template:
+            raise ValueError("SRS command_template requires allow_custom_command_template=true.")
+        validate_command_template(config.command_template, exe)
+
+
+def validate_command_template(template: list[str], configured_exe: str) -> None:
+    if not template:
+        raise ValueError("SRS command_template must not be empty.")
+    for token in template:
+        if not isinstance(token, str) or not token.strip():
+            raise ValueError("SRS command_template tokens must be non-empty strings.")
+
+    first_token = template[0]
+    if first_token not in {"{exe}", configured_exe}:
+        raise ValueError("SRS command_template first token must be {exe} or the configured executable path.")
+
+    rendered_name = Path(first_token.replace("{exe}", configured_exe)).name.lower()
+    if rendered_name in BLOCKED_COMMAND_NAMES:
+        raise ValueError(f"SRS command_template executable is blocked: {rendered_name}")
+
+
+def _coerce_template(template_data: Any) -> list[str]:
+    if not isinstance(template_data, list):
+        raise ValueError("SRS command_template must be a JSON list of argv tokens.")
+    return [str(token) for token in template_data]
 
 
 def load_default_adapter(path: str | Path = "config/srs/srs_audio.json") -> SrsExternalAudioAdapter:
