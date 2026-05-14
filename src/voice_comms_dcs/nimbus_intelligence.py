@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -14,6 +15,16 @@ from .context_manager import AiMode, ContextManager, DynamicContext
 from .dashboard_settings import personality_instruction
 from .language_models import SUPPORTED_LANGUAGES
 from .matcher import find_best_match
+
+
+OLLAMA_UNAVAILABLE_RESPONSE = "Comms system offline, wingman unavailable. Commands still active."
+DEFAULT_LLM_TIMEOUT_SECONDS = 8.0
+DEFAULT_CONTEXT_LIMIT_TOKENS = 2048
+TOKEN_ESTIMATE_MULTIPLIER = 1.3
+
+
+class OllamaUnavailableError(RuntimeError):
+    """Raised when the local Ollama service cannot answer within the runtime budget."""
 
 
 class IntentType(str, Enum):
@@ -39,26 +50,25 @@ class LocalLlmClient:
         self,
         base_url: str = "http://127.0.0.1:11434",
         model: str = "qwen2.5:0.5b",
-        timeout_seconds: float = 3.0,
+        timeout_seconds: float | None = None,
     ) -> None:
+        """Create a bounded local LLM client with environment-configurable timeout."""
         self.base_url = base_url.rstrip("/")
         self.model = model
-        self.timeout_seconds = timeout_seconds
+        timeout_default = timeout_seconds if timeout_seconds is not None else DEFAULT_LLM_TIMEOUT_SECONDS
+        self.timeout_seconds = _float_from_env("NIMBUS_LLM_TIMEOUT", timeout_default)
 
     def chat_json(self, messages: list[dict[str, str]]) -> dict[str, Any]:
-        response = requests.post(
-            f"{self.base_url}/api/chat",
-            json={
+        """Send chat messages to Ollama and parse a JSON object response."""
+        payload = self._post_chat(
+            {
                 "model": self.model,
                 "messages": messages,
                 "stream": False,
                 "format": "json",
                 "options": {"temperature": 0.2, "num_ctx": 1024},
-            },
-            timeout=self.timeout_seconds,
+            }
         )
-        response.raise_for_status()
-        payload = response.json()
         content = payload.get("message", {}).get("content", "{}")
         parsed = json.loads(content)
         if not isinstance(parsed, dict):
@@ -66,19 +76,31 @@ class LocalLlmClient:
         return parsed
 
     def chat_text(self, messages: list[dict[str, str]], combat_mode: bool = False) -> str:
+        """Send chat messages to Ollama and return the assistant text response."""
         options = {
             "temperature": 0.35 if not combat_mode else 0.1,
             "num_ctx": 1024,
             "num_predict": 24 if combat_mode else 80,
         }
-        response = requests.post(
-            f"{self.base_url}/api/chat",
-            json={"model": self.model, "messages": messages, "stream": False, "options": options},
-            timeout=self.timeout_seconds,
+        payload = self._post_chat(
+            {"model": self.model, "messages": messages, "stream": False, "options": options}
         )
-        response.raise_for_status()
-        payload = response.json()
         return str(payload.get("message", {}).get("content", "")).strip()
+
+    def _post_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/chat",
+                json=payload,
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+            parsed = response.json()
+        except requests.exceptions.RequestException as exc:
+            raise OllamaUnavailableError("Ollama did not respond within the runtime budget.") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Ollama returned a non-object response")
+        return parsed
 
 
 class NimbusIntelligence:
@@ -92,6 +114,7 @@ class NimbusIntelligence:
         enable_llm: bool = True,
         personality: str = "professional",
     ) -> None:
+        """Initialise Nimbus with deterministic command handling and optional local LLM support."""
         self.config = config
         self.context_manager = context_manager or ContextManager()
         self.llm = llm or LocalLlmClient(
@@ -104,25 +127,49 @@ class NimbusIntelligence:
         self.language = config.language.selected
         self.personality = personality
 
+    @property
+    def context_window_tokens(self) -> int:
+        """Return a word-count based estimate of the in-memory conversation token load."""
+        with self.context_manager._lock:
+            return self._estimate_history_tokens_unlocked()
+
+    def trim_history_if_needed(self) -> None:
+        """Drop the oldest user/assistant turns when the conversation exceeds its token budget."""
+        limit = _int_from_env("NIMBUS_CONTEXT_LIMIT", DEFAULT_CONTEXT_LIMIT_TOKENS)
+        if limit <= 0:
+            return
+        with self.context_manager._lock:
+            while self._estimate_history_tokens_unlocked() > limit and self.context_manager._turns:
+                self.context_manager._turns.popleft()
+                if self.context_manager._turns:
+                    self.context_manager._turns.popleft()
+
     def set_language(self, language: str) -> None:
+        """Set Nimbus's response language when it is one of the supported language codes."""
         if language in SUPPORTED_LANGUAGES:
             self.language = language
 
     def set_personality(self, personality: str) -> None:
+        """Set the tactical response personality used in local LLM prompts."""
         self.personality = personality
 
     def close(self) -> None:
+        """Release runtime resources held by the deterministic DCS command service."""
         self.command_service.close()
 
     def update_telemetry(self, telemetry: dict[str, Any]) -> DynamicContext:
+        """Refresh the dynamic DCS telemetry context used by Nimbus responses."""
         return self.context_manager.update_telemetry(telemetry)
 
     def handle_pilot_text(self, text: str) -> tuple[IntentDecision, DispatchResult | None]:
+        """Route pilot text through warnings, deterministic commands, telemetry, or the LLM."""
+        self.trim_history_if_needed()
         context = self.context_manager.get_context()
 
         warning = self._priority_warning_decision(context)
         if warning:
             self.context_manager.add_turn("assistant", warning.response_text)
+            self.trim_history_if_needed()
             return warning, None
 
         command_match = find_best_match(text, self.config.commands, self.config.min_confidence)
@@ -135,8 +182,7 @@ class NimbusIntelligence:
                 command_id=command_match.command.id,
                 confidence=command_match.confidence,
             )
-            self.context_manager.add_turn("user", text)
-            self.context_manager.add_turn("assistant", response)
+            self._remember_turn_pair(text, response)
             return decision, dispatch
 
         if _looks_like_telemetry_question(text):
@@ -146,8 +192,7 @@ class NimbusIntelligence:
                 response_text=_combat_trim(response, context.mode),
                 confidence=0.85,
             )
-            self.context_manager.add_turn("user", text)
-            self.context_manager.add_turn("assistant", decision.response_text)
+            self._remember_turn_pair(text, decision.response_text)
             return decision, None
 
         response = self._conversational_response(text, context)
@@ -156,9 +201,16 @@ class NimbusIntelligence:
             response_text=_combat_trim(response, context.mode),
             confidence=0.65,
         )
-        self.context_manager.add_turn("user", text)
-        self.context_manager.add_turn("assistant", decision.response_text)
+        self._remember_turn_pair(text, decision.response_text)
         return decision, None
+
+    def _estimate_history_tokens_unlocked(self) -> int:
+        return sum(_estimate_tokens(turn.text) for turn in self.context_manager._turns)
+
+    def _remember_turn_pair(self, user_text: str, assistant_text: str) -> None:
+        self.context_manager.add_turn("user", user_text)
+        self.context_manager.add_turn("assistant", assistant_text)
+        self.trim_history_if_needed()
 
     def _priority_warning_decision(self, context: DynamicContext) -> IntentDecision | None:
         if context.warning and context.mode is AiMode.COMBAT:
@@ -205,17 +257,21 @@ class NimbusIntelligence:
         if not self.enable_llm:
             return _phrase(self.language, "monitoring")
 
+        self.trim_history_if_needed()
         messages = self.context_manager.build_llm_messages(text)
         messages[0]["content"] += "\n\n" + language_instruction(self.language)
         messages[0]["content"] += "\n" + personality_instruction(self.personality)
         try:
             response = self.llm.chat_text(messages, combat_mode=context.mode is AiMode.COMBAT)
+        except OllamaUnavailableError:
+            return OLLAMA_UNAVAILABLE_RESPONSE
         except Exception:
             return _phrase(self.language, "local_model_unavailable")
         return response or _phrase(self.language, "say_again")
 
 
 def language_instruction(language: str) -> str:
+    """Return the prompt instruction that keeps Nimbus responses in the selected language."""
     names = {
         "en": "English",
         "zh": "Chinese",
@@ -330,7 +386,34 @@ def _get_number(data: dict[str, Any], *path: str) -> float | None:
         return None
 
 
+def _float_from_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _int_from_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _estimate_tokens(text: str) -> int:
+    return int(len(text.split()) * TOKEN_ESTIMATE_MULTIPLIER)
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Run a one-shot Nimbus intelligence check from the command line."""
     parser = argparse.ArgumentParser(description="Run a one-shot Nimbus intelligence test.")
     parser.add_argument("--config", default="config/commands.json")
     parser.add_argument("--text", required=True)
