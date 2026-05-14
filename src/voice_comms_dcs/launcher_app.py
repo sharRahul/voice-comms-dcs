@@ -36,6 +36,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -49,6 +50,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSystemTrayIcon,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
     QMenu,
@@ -247,6 +249,21 @@ QPushButton#btn_card_action:hover {{
     border-color: {C_ACCENT};
     color: {C_ACCENT};
     background-color: {C_CARD_HOVER};
+}}
+QPushButton#btn_danger {{
+    background-color: transparent;
+    color: #f87171;
+    border: 1px solid rgba(248,113,113,.40);
+    font-size: 11px;
+    padding: 5px 14px;
+    border-radius: 6px;
+}}
+QPushButton#btn_danger:hover {{
+    background-color: rgba(248,113,113,.12);
+    border-color: #f87171;
+}}
+QPushButton#btn_danger:pressed {{
+    background-color: rgba(248,113,113,.22);
 }}
 
 /* ── Log list ────────────────────────────────────────── */
@@ -573,6 +590,160 @@ class TrayPreferenceDialog(QDialog):
 
 
 # ---------------------------------------------------------------------------
+# Uninstall dialog
+# ---------------------------------------------------------------------------
+
+class UninstallDialog(QDialog):
+    """Two-phase uninstall dialog: confirm → progress."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Uninstall Voice-Comms-DCS")
+        self.setMinimumWidth(480)
+        self.setModal(True)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 20, 24, 20)
+        root.setSpacing(14)
+
+        # Warning header
+        lbl_title = QLabel("⚠  Uninstall Voice-Comms-DCS")
+        lbl_title.setStyleSheet("font-size: 15px; font-weight: 700; color: #f87171;")
+        root.addWidget(lbl_title)
+
+        lbl_sub = QLabel(
+            "Select what to remove. This cannot be undone."
+        )
+        lbl_sub.setStyleSheet("color: #8ea5b8; font-size: 12px;")
+        root.addWidget(lbl_sub)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        root.addWidget(sep)
+
+        # Checkboxes
+        self._chk_lua = QCheckBox("Remove DCS Lua bridge from all Saved Games folders")
+        self._chk_lua.setChecked(True)
+        self._chk_models = QCheckBox("Remove downloaded AI models (Whisper, Piper, Ollama)")
+        self._chk_models.setChecked(True)
+        for chk in (self._chk_lua, self._chk_models):
+            chk.setStyleSheet("font-size: 12px; spacing: 8px;")
+            root.addWidget(chk)
+
+        # Progress area (hidden until running)
+        self._log_edit = QTextEdit()
+        self._log_edit.setReadOnly(True)
+        self._log_edit.setObjectName("activity_log")
+        self._log_edit.setMinimumHeight(140)
+        self._log_edit.setStyleSheet(
+            "background:#07090f; border:1px solid #1e293b; border-radius:6px;"
+            "font-family:'Consolas','Courier New',monospace; font-size:11px; color:#94a3b8;"
+        )
+        self._log_edit.hide()
+        root.addWidget(self._log_edit)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._btn_cancel = QPushButton("Cancel")
+        self._btn_cancel.setObjectName("btn_small")
+        self._btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self._btn_cancel)
+
+        self._btn_proceed = QPushButton("Uninstall")
+        self._btn_proceed.setObjectName("btn_danger")
+        self._btn_proceed.clicked.connect(self._run_uninstall)
+        btn_row.addWidget(self._btn_proceed)
+        root.addLayout(btn_row)
+
+        self._worker: Optional[threading.Thread] = None
+
+    # ------------------------------------------------------------------
+
+    def _run_uninstall(self) -> None:
+        remove_lua = self._chk_lua.isChecked()
+        remove_models = self._chk_models.isChecked()
+
+        if not remove_lua and not remove_models:
+            return
+
+        self._btn_proceed.setEnabled(False)
+        self._btn_cancel.setEnabled(False)
+        self._chk_lua.setEnabled(False)
+        self._chk_models.setEnabled(False)
+        self._log_edit.show()
+        self._log_edit.append("Starting uninstall…\n")
+
+        self._worker = threading.Thread(
+            target=self._do_uninstall,
+            args=(remove_lua, remove_models),
+            daemon=True,
+        )
+        self._worker.start()
+
+    def _do_uninstall(self, remove_lua: bool, remove_models: bool) -> None:
+        from PyQt6.QtCore import QMetaObject, Q_ARG  # local import avoids circular issue
+
+        def _log(msg: str) -> None:
+            QMetaObject.invokeMethod(
+                self._log_edit,
+                "append",
+                Qt.ConnectionType.QueuedConnection,
+                Q_ARG(str, msg),
+            )
+
+        cli = sys.executable
+        success = True
+
+        if remove_lua:
+            _log("► Removing DCS Lua bridge…")
+            result = subprocess.run(
+                [cli, "-m", "voice_comms_dcs.main", "--uninstall-lua"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                _log("  ✓ Lua bridge removed")
+            else:
+                _log(f"  ✗ Error: {result.stderr.strip() or result.stdout.strip()}")
+                success = False
+
+        if remove_models:
+            _log("► Removing AI models (this may take a moment)…")
+            result = subprocess.run(
+                [cli, "-m", "voice_comms_dcs.main",
+                 "--remove-dependencies", "--languages", "en", "zh", "ko", "fr", "ru", "es"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                _log("  ✓ AI models removed")
+            else:
+                _log(f"  ✗ Error: {result.stderr.strip() or result.stdout.strip()}")
+                success = False
+
+        if success:
+            _log("\n✅  Uninstall complete.")
+            _log("You may now delete the application folder and the Python package.")
+        else:
+            _log("\n⚠  Uninstall completed with errors — check output above.")
+
+        QMetaObject.invokeMethod(
+            self._btn_cancel,
+            "setText",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(str, "Close"),
+        )
+        QMetaObject.invokeMethod(
+            self._btn_cancel,
+            "setEnabled",
+            Qt.ConnectionType.QueuedConnection,
+            Q_ARG(bool, True),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Signals bridge (for cross-thread UI updates)
 # ---------------------------------------------------------------------------
 
@@ -828,6 +999,16 @@ class LauncherWindow(QMainWindow):
         sl.addLayout(ptt_row)
 
         sl.addStretch()
+
+        sl.addWidget(self._make_sep())
+
+        btn_uninstall = QPushButton("Uninstall…")
+        btn_uninstall.setObjectName("btn_danger")
+        btn_uninstall.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_uninstall.setToolTip("Remove the DCS Lua bridge and/or downloaded AI models")
+        btn_uninstall.clicked.connect(self._on_uninstall)
+        sl.addWidget(btn_uninstall)
+
         row.addWidget(settings_frame, stretch=2)
 
         return row
@@ -1094,6 +1275,10 @@ class LauncherWindow(QMainWindow):
             return
         self._log(f"Opening config: {path}")
         _open_file_in_editor(path)
+
+    def _on_uninstall(self) -> None:
+        dlg = UninstallDialog(self)
+        dlg.exec()
 
     # ------------------------------------------------------------------
     # Close / quit handling
