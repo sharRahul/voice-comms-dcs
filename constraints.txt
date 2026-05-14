@@ -19,6 +19,8 @@ whisper-cpp-python==0.2.0
 
 # Development and audit tooling pins used by requirements-dev.txt.
 pytest==8.3.5
+pytest-cov==6.0.0
+mypy==1.15.0
 ruff==0.9.10
 pip-audit==2.7.3
 build==1.2.2
