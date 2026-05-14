@@ -8,6 +8,7 @@ from .app import VoiceCommsService
 from .config import ConfigError, load_config
 from .dependency_manager import DependencyManager, DependencyPlan, validate_languages
 from .dcs_installer_utils import discover_dcs_targets, install_lua_bridge, uninstall_lua_bridge
+from .runtime_config import ensure_default_config
 from .ui import VoiceCommsUi
 
 
@@ -20,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test-phrase")
     parser.add_argument("--install-lua", action="store_true")
     parser.add_argument("--uninstall-lua", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="Preview Lua bridge install without modifying DCS files.")
     parser.add_argument("--dcs-source-dir", default="dcs_scripts")
     parser.add_argument("--saved-games")
     parser.add_argument("--setup-dependencies", action="store_true")
@@ -67,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
             for message in uninstall_lua_bridge(targets):
                 print(message)
             return 0
-        results = install_lua_bridge(Path(args.dcs_source_dir), targets=targets)
+        results = install_lua_bridge(Path(args.dcs_source_dir), targets=targets, dry_run=args.dry_run)
         for result in results:
             print(f"{result.target.root}: {result.message}")
             if result.backup_path:
@@ -151,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {output}")
         return 0
 
-    config_path = Path(args.config)
+    config_path = ensure_default_config(args.config)
     try:
         config = load_config(config_path)
     except (ConfigError, OSError, ValueError) as exc:
