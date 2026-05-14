@@ -10,7 +10,7 @@ def test_dockerfile_exists_and_is_dev_test_focused():
 
     assert dockerfile.exists()
     assert "FROM python:3.11-slim" in content
-    assert "python", "-m", "pytest", "-q"
+    assert 'CMD ["python", "-m", "pytest", "-q"]' in content
     assert "COPY models" not in content
     assert "COPY .env" not in content
 
@@ -18,7 +18,8 @@ def test_dockerfile_exists_and_is_dev_test_focused():
 def test_dockerignore_excludes_sensitive_and_generated_content():
     content = Path(".dockerignore").read_text(encoding="utf-8")
 
-    for expected in (".env", ".env.*", "models", "dist", "build_output", "*.bin", "*.onnx"):
+    expected_entries = (".env", ".env.*", "models", "dist", "build_output", "*.bin", "*.onnx")
+    for expected in expected_entries:
         assert expected in content
     assert "!/.env.example" in content
 
