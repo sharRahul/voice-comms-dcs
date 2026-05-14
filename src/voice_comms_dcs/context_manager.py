@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import threading
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
@@ -44,29 +46,39 @@ class ContextManager:
         self.aircraft_profile = aircraft_profile
         self._turns: deque[ConversationTurn] = deque(maxlen=max_turns)
         self._last_context = DynamicContext()
+        self._lock = threading.RLock()
 
     def update_telemetry(self, telemetry: dict[str, Any]) -> DynamicContext:
-        mode = self._derive_mode(telemetry)
-        warning = self._derive_priority_warning(telemetry)
-        prompt_prefix = self._format_prompt_prefix(telemetry, mode, warning)
-        self._last_context = DynamicContext(
-            telemetry=telemetry,
+        telemetry_copy = copy.deepcopy(telemetry)
+        mode = self._derive_mode(telemetry_copy)
+        warning = self._derive_priority_warning(telemetry_copy)
+        prompt_prefix = self._format_prompt_prefix(telemetry_copy, mode, warning)
+        context = DynamicContext(
+            telemetry=telemetry_copy,
             mode=mode,
             warning=warning,
             prompt_prefix=prompt_prefix,
         )
-        return self._last_context
+        with self._lock:
+            self._last_context = context
+            return copy.deepcopy(self._last_context)
 
     def get_context(self) -> DynamicContext:
-        return self._last_context
+        with self._lock:
+            return copy.deepcopy(self._last_context)
 
     def add_turn(self, speaker: str, text: str) -> None:
         text = " ".join(text.strip().split())
         if text:
-            self._turns.append(ConversationTurn(speaker=speaker, text=text))
+            with self._lock:
+                self._turns.append(ConversationTurn(speaker=speaker, text=text))
 
     def build_llm_messages(self, pilot_text: str) -> list[dict[str, str]]:
-        context = self.get_context()
+        with self._lock:
+            context = copy.deepcopy(self._last_context)
+            turns = list(copy.deepcopy(self._turns))
+            aircraft_profile = self.aircraft_profile
+
         mode_rule = (
             "You are in COMBAT MODE. Reply in ten words or fewer. Prioritise threats, RWR, "
             "missile warnings, fuel, altitude, and aircraft survival."
@@ -76,11 +88,11 @@ class ContextManager:
         system = (
             "You are Nimbus, a local-first AI wingman/RIO/ATC assistant for DCS World. "
             "Never claim real-world authority. Never invent sensor data. Use only the supplied telemetry. "
-            f"Aircraft profile: {self.aircraft_profile}. {mode_rule}\n\n"
+            f"Aircraft profile: {aircraft_profile}. {mode_rule}\n\n"
             f"{context.prompt_prefix}"
         )
         messages = [{"role": "system", "content": system}]
-        for turn in self._turns:
+        for turn in turns:
             role = "assistant" if turn.speaker == "assistant" else "user"
             messages.append({"role": role, "content": turn.text})
         messages.append({"role": "user", "content": pilot_text})
