@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,8 @@ import numpy as np
 from scipy.signal import butter, lfilter
 
 from .language_models import get_piper_voice
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,7 @@ class RadioVoiceConfig:
     bandpass_high_hz: float = 3000.0
     static_level: float = 0.012
     output_gain: float = 0.85
+    piper_timeout_seconds: float = 30.0
 
 
 class RadioVoice:
@@ -54,6 +58,22 @@ class RadioVoice:
         temp_dir = Path(tempfile.mkdtemp(prefix="voice-comms-dcs-tts-"))
         return self.synthesise_to_wav(text, temp_dir / "nimbus_radio.wav")
 
+    def cleanup_temp_wav(self, path: str | Path) -> None:
+        """Best-effort cleanup for temp TTS directories created by synthesise_to_temp_wav.
+
+        User-provided output paths are intentionally left alone. Only directories under the active
+        system temp root with the voice-comms-dcs TTS prefix are removed.
+        """
+
+        try:
+            wav_path = Path(path)
+            parent = wav_path.resolve().parent
+            temp_root = Path(tempfile.gettempdir()).resolve()
+            if parent.name.startswith("voice-comms-dcs-tts-") and parent.is_relative_to(temp_root):
+                shutil.rmtree(parent)
+        except Exception:
+            logger.debug("tts_temp_cleanup_failed", exc_info=True)
+
     def _run_piper(self, text: str, output_path: Path) -> None:
         exe = shutil.which(self.config.piper_exe) or self.config.piper_exe
         model_path = Path(self.config.piper_model)
@@ -63,15 +83,25 @@ class RadioVoice:
                 "or run python -m voice_comms_dcs.dependency_manager --languages en --all."
             )
 
-        process = subprocess.run(
-            [exe, "--model", str(model_path), "--output_file", str(output_path)],
-            input=text,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            check=False,
-        )
+        try:
+            process = subprocess.run(
+                [exe, "--model", str(model_path), "--output_file", str(output_path)],
+                input=text,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                check=False,
+                timeout=self.config.piper_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            try:
+                output_path.unlink(missing_ok=True)
+            except OSError:
+                logger.debug("partial_piper_output_cleanup_failed", exc_info=True)
+            raise RuntimeError(
+                f"Piper synthesis timed out after {self.config.piper_timeout_seconds:g} seconds"
+            ) from exc
         if process.returncode != 0:
             raise RuntimeError(
                 "Piper failed: "
@@ -98,6 +128,7 @@ def config_for_language(
     language: str,
     piper_exe: str = "piper",
     static_level: float = 0.012,
+    piper_timeout_seconds: float = 30.0,
 ) -> RadioVoiceConfig:
     voice = get_piper_voice(language)
     return RadioVoiceConfig(
@@ -105,6 +136,7 @@ def config_for_language(
         piper_model=voice.model_path,
         language=language,
         static_level=static_level,
+        piper_timeout_seconds=piper_timeout_seconds,
     )
 
 
@@ -177,14 +209,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", default="build_output/nimbus_radio.wav")
     parser.add_argument("--model", default=RadioVoiceConfig.piper_model)
     parser.add_argument("--piper-exe", default=RadioVoiceConfig.piper_exe)
+    parser.add_argument("--piper-timeout", type=float, default=RadioVoiceConfig.piper_timeout_seconds)
     parser.add_argument("--lang", default="en", choices=["en", "zh", "ko", "fr", "ru", "es"])
     parser.add_argument("--use-language-model", action="store_true")
     args = parser.parse_args(argv)
 
-    config = config_for_language(args.lang, args.piper_exe) if args.use_language_model else RadioVoiceConfig(
-        piper_exe=args.piper_exe,
-        piper_model=args.model,
-        language=args.lang,
+    config = (
+        config_for_language(args.lang, args.piper_exe, piper_timeout_seconds=args.piper_timeout)
+        if args.use_language_model
+        else RadioVoiceConfig(
+            piper_exe=args.piper_exe,
+            piper_model=args.model,
+            language=args.lang,
+            piper_timeout_seconds=args.piper_timeout,
+        )
     )
     voice = RadioVoice(config)
     output = voice.synthesise_to_wav(args.text, args.output)
