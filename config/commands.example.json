@@ -20,6 +20,23 @@
       "hangover_frames": 8
     }
   },
+  "udp_reliability": {
+    "enabled": true,
+    "require_ack": false,
+    "retries": 0,
+    "ack_timeout_seconds": 0.05,
+    "replay_window_size": 128,
+    "protocol_version": 2
+  },
+  "dashboard": {
+    "privacy": {
+      "expose_position": false,
+      "expose_tactical": true,
+      "expose_context": true,
+      "expose_model_paths": false,
+      "expose_last_transcript": true
+    }
+  },
   "llm": {
     "provider": "ollama",
     "base_url": "http://127.0.0.1:11434",
